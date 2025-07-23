@@ -22,18 +22,16 @@ $> echo 'ababcabababc' | ./filter ababc | cat -e
 $>
 ```
 
-In case of error during read or malloc the program writes: "Error: " followed by the error message and should return 1.
-If the program is called without argument or with an empty argument or with multiple arguments it must return 1.
+- In case of error during read or malloc the program writes: "Error: " followed by the error message and should return 1.
+- If the program is called without argument or with an empty argument or with multiple arguments it must return 1.
 
-All allocated memory must be reed properly.
+- All allocated memory must be reed properly.
 
-Only while loops are allowed. No ternary operators are allowed.
+- Allowed functions: read, write, strlen, memmem, memmove, malloc, calloc, realloc, free, printf, fprintf, stdout, stderr, perror
 
-Allowed functions: read, write, strlen, memmem, memmove, malloc, calloc, realloc, free, printf, fprintf, stdout, stderr, perror
+- Assignment name: filter
 
-Assignment name: filter
-
-Expected files: filter.c
+- Expected files: filter.c
 
 NOTES:
 ```c

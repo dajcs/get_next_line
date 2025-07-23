@@ -13,8 +13,4 @@ int ft_scanf(const char *, ... );
 ```
 - Expected files   : ft_scanf.c
 - Allowed functions: fgetc, ungetc, ferror, feof, isspace, isdigit, stdin, va_start, va_arg, va_copy, va_end
-- the file `ft_scanf_given.c` contains the boilerplate/boring parts of the exercise
-
-- please respect the norminette rules:
-  - only while loops are allowed
-  - no ternary operators are allowed
+- the file `ft_scanf_bp.c` contains the boilerplate/boring parts of the exercise

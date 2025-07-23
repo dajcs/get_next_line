@@ -20,6 +20,4 @@ cba$
 ```
 
 - allowed external functions : `puts`, `malloc`, `calloc`, `realloc`, `free`, `write`
-- please respect the norminette rules:
-  - only while loops are allowed
-  - no ternary operators are allowed
+

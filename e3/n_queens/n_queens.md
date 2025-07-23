@@ -20,6 +20,4 @@ $> ./n_queens 7 | cat -e
 etc...
 
 - allowed external functions : `atoi`, `fprintf`, `write`
-- please respect the norminette rules:
-  - only while loops are allowed
-  - no ternary operators are allowed
+

@@ -34,7 +34,7 @@ and the program should print the length of this path that is:
 
 - the program will read a set of city coordinates in the form `%f, %f\n` from the standard input and will print the length of the shortest possible path containing all these cities under the form `%.2f`.
 - the maximum number of cities is 11
-- the file `tsp_give.c` contains the boilerplate/boring parts of the exercise
+- the file `tsp_bp.c` contains the boilerplate/boring parts of the exercise
 - hint: to user `sqrtf` add `-lm` to the compilation command
 
 For example this should work:
@@ -49,6 +49,4 @@ $> ./tsp < square.txt | cat -e
 ```
 
 - allowed external functions : write, sqrtf, getline, fseek, fscanf, ferror, feof, fabsf, memcpy, fprintf, fclose, malloc, calloc, realloc, free, fopen, errno, stderr, stdin, stdout
-- please respect the norminette rules:
-  - only while loops are allowed
-  - no ternary operators are allowed
+

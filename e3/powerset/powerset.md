@@ -53,6 +53,3 @@ $
 ```
 
 - allowed external functions : `atoi`, `printf`
-- please respect the norminette rules:
-  - only while loops are allowed
-  - no ternary operators are allowed
