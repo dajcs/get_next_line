@@ -1,0 +1,25 @@
+Can you help me writing a C program, that will print all the solutions to the n queens problem for a `n` given argument?
+- `n` is positive
+- the order of solutions is not important
+- the solutions should be displayed in the following format: \
+  \<p1\> \<p2\> \<p3\> ...\n \
+  where `pn` are the line index of the queen in each column starting from 0.
+
+For example this should work : \
+```bash
+$> ./n_queens 2 | cat -e
+
+$> ./n_queens 4 | cat -e
+1 3 0 2$
+2 0 3 1$
+
+$> ./n_queens 7 | cat -e
+0 2 4 6 1 3 5$
+0 3 6 2 5 1 4$
+```
+etc...
+
+- allowed external functions : `atoi`, `fprintf`, `write`
+- please respect the norminette rules:
+  - only while loops are allowed
+  - no ternary operators are allowed
