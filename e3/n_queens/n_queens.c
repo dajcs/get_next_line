@@ -53,10 +53,16 @@ void solve(int *pos, int n, int col)
 	row = 0;
 	while (row < n)      // try every row in this column
 	{
-		if (is_safe(pos, col, row))   // the new queen is going to kill?
+		if (is_safe(pos, col, row))   // if queen @ col/row can be a good fit
 		{
-			pos[col] = row;           // we're good with this row, try next column
-			solve(pos, n, col + 1);
+			pos[col] = row;           // place
+			solve(pos, n, col + 1);   //      ... and recurse with next col
+			/* --- explicit undo step (for educational purposes only) --- */
+			pos[col] = -1;            // after all remaining DFS has been exhausted
+			                          // reset position and try the next possibility
+									  // this is called "back-tracking"
+			/* in a different setup this would make a difference, but in our case
+			   we are going anyway overwrite the `-1` with the next row value */
 		}
 		row++;
 	}
