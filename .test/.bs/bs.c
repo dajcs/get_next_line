@@ -4,6 +4,7 @@
  *  gcc -O2 bs.c -o bs -lX11 -lXtst
  *
  *  use: ./bs <time> <s|m|h>
+ *  exit: q
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -104,6 +105,8 @@ main(int argc, char *argv[])
     XSelectInput(dpy, win,
              KeyPressMask | ButtonPressMask | PointerMotionMask);
     XMapRaised(dpy, win);
+    /* ensure we receive key events (for 'q') */
+    XSetInputFocus(dpy, win, RevertToPointerRoot, CurrentTime);
     XFlush(dpy);
 
     /* park pointer bottom‑right */
@@ -127,10 +130,25 @@ main(int argc, char *argv[])
             while (XPending(dpy)) {
                 XNextEvent(dpy, &ev);
 
-                if (ev.type == KeyPress || ev.type == ButtonPress) {
+
+                if (ev.type == KeyPress) {
+                    KeySym sym = XLookupKeysym(&ev.xkey, 0);
+                    if (sym == XK_q || sym == XK_Q) {
+                        /* quit without logging out */
+                        XDestroyWindow(dpy, win);
+                        XCloseDisplay(dpy);
+                        return 0;
+                    } else {
+                        logout(dpy);
+                        return 0;
+                    }
+                }
+
+                if (ev.type == ButtonPress) {
                     logout(dpy);
                     return 0;
                 }
+
                 if (ev.type == MotionNotify) {
                     XMotionEvent *m = &ev.xmotion;
                     /* user moved if coords differ from our last warp target */
@@ -140,7 +158,9 @@ main(int argc, char *argv[])
                     }
                 }
             }
-        } else {
+        }
+        else
+        {
             /* timer tick – jiggle pointer 1 px left, wrap at 0 */
             if (--x < 0) x = w - 1;
             XWarpPointer(dpy, None, root, 0, 0, 0, 0, x, y);
