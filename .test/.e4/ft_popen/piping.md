@@ -27,7 +27,7 @@ The parent process has its standard file descriptors: 0 (STDIN), 1 (STDOUT), and
 Parent Process
 +---------------------------------+
 | File Descriptors                |
-|  0 (STDIN)  -> Terminal Input   |
+|  0 (STDIN)  <- Terminal Input   |
 |  1 (STDOUT) -> Terminal Output  |
 |  2 (STDERR) -> Terminal Output  |
 +---------------------------------+
@@ -41,7 +41,7 @@ The `pipe()` call creates a pipe and gives the parent two new file descriptors. 
 Parent Process
 +---------------------------------+
 | File Descriptors                |
-|  0 (STDIN)  -> Terminal Input   |
+|  0 (STDIN)  <- Terminal Input   |
 |  1 (STDOUT) -> Terminal Output  |
 |  2 (STDERR) -> Terminal Output  |
 |                                 |
@@ -59,7 +59,7 @@ A child process is created. It is an almost exact copy of the parent, which mean
          Parent Process                                   Child Process
 +---------------------------------+               +---------------------------------+
 | File Descriptors                |               | File Descriptors                |
-|  0 (STDIN)  -> Terminal Input   |               |  0 (STDIN)  -> Terminal Input   |
+|  0 (STDIN)  <- Terminal Input   |               |  0 (STDIN)  <- Terminal Input   |
 |  1 (STDOUT) -> Terminal Output  |               |  1 (STDOUT) -> Terminal Output  |
 |  2 (STDERR) -> Terminal Output  |               |  2 (STDERR) -> Terminal Output  |
 |                                 |               |                                 |
@@ -85,11 +85,11 @@ The child wants to *write* its output to the pipe, so it doesn't need to read fr
                          Child Process
                  +--------------------------------------+
                  | File Descriptors                     |
-                 |  0 (STDIN)  -> Terminal Input        |
+                 |  0 (STDIN)  <- Terminal Input        |
                  |  1 (STDOUT) -> Terminal Output       |
                  |  2 (STDERR) -> Terminal Output       |
                  |                                      |
-    -+--------+----> 3 (p[0])  -X- CLOSED --            |
+    -+--------+----> X (p[0])  -X- CLOSED --            |
      |  PIPE  |                                         |
     -+--------+----< 4 (p[1])                           |
                  +--------------------------------------+
@@ -102,13 +102,13 @@ The child wants to *write* its output to the pipe, so it doesn't need to read fr
                          Child Process
                  +--------------------------------------+
                  | File Descriptors                     |
-                 |  0 (STDIN)  -> Terminal Input        |
-                 |  1 (STDOUT) -> p[1] (pipe write end) |
-                 |  2 (STDERR) -> Terminal Output       |
-                 |                                      |
-    -+--------+----> 3 (p[0])  -X- CLOSED --            |
-     |  PIPE  |                                         |
-    -+--------+----< 4 (p[1])  == 1 (STDOUT)            |
+                 |  0 (STDIN)  <- Terminal Input        |
+                 |  1 (STDOUT) -> ------------------+   |
+                 |  2 (STDERR) -> Terminal Output   |   |
+                 |                                  |   |
+    -+--------+----> X (p[0])  -X- CLOSED --        |   |
+     |  PIPE  |        (p[1])  == 1 (STDOUT)        |   |
+    -+--------+----< 4 <----------------------------+   |
                  +--------------------------------------+
     ```
 
@@ -118,13 +118,13 @@ The child wants to *write* its output to the pipe, so it doesn't need to read fr
                          Child Process
                  +--------------------------------------+
                  | File Descriptors                     |
-                 |  0 (STDIN)  -> Terminal Input        |
-                 |  1 (STDOUT) -> p[1] (pipe write end) |
-                 |  2 (STDERR) -> Terminal Output       |
-                 |                                      |
-    -+--------+----> 3 (p[0])  -X- CLOSED --            |
-     |  PIPE  |                                         |
-    -+--------+----< 4 (p[1])  -X- CLOSED --            |
+                 |  0 (STDIN)  <- Terminal Input        |
+                 |  1 (STDOUT) -> ------------------+   |
+                 |  2 (STDERR) -> Terminal Output   |   |
+                 |                                  |   |
+    -+--------+----> X (p[0])  -X- CLOSED --        |   |
+     |  PIPE  |      1 (STDOUT), (p[1]) -X- CLOSED  |   |
+    -+--------+----< 1 <----------------------------+   |
                  +--------------------------------------+
     ```
 
@@ -133,13 +133,13 @@ The child wants to *write* its output to the pipe, so it doesn't need to read fr
 The parent wants to *read* the child's output from the pipe, so it doesn't need to write to it.
 
 1.  **`close(p[1])`:** The parent closes its write end (`fd 4`). \
-If it didn't, the pipe would remain open for writing, and the parent would never get an "end-of-file" when reading from `p`, even after the child process finishes.
+If it didn't, the pipe would remain open for writing, and the parent would never get an "end-of-file" when reading from pipe `p[0]` (read) end, even after the child process finishes.
 
     ```
              Parent Process
     +---------------------------------+
     | File Descriptors                |
-    |  0 (STDIN)  -> Terminal Input   |
+    |  0 (STDIN)  <- Terminal Input   |
     |  1 (STDOUT) -> Terminal Output  |
     |  2 (STDERR) -> Terminal Output  |
     |                                 |
@@ -155,18 +155,18 @@ If it didn't, the pipe would remain open for writing, and the parent would never
 
 The `main` function in the parent now has `fd 3`, which is the read end of the pipe. The child process (now running the new command, e.g., `ls`) has its `stdout` redirected to the write end of the same pipe.
 
-```
-         Parent Process                                   Child Process
-+---------------------------------+               +---------------------------------+
-| File Descriptors                |               | File Descriptors                |
-|  0 (STDIN)  -> Terminal Input   |               |  0 (STDIN)  -> Terminal Input   |
-|  1 (STDOUT) -> Terminal Output  |               |  1 (STDOUT) -> Terminal Output  |
-|  2 (STDERR) -> Terminal Output  |               |  2 (STDERR) -> Terminal Output  |
-|                                 |               |                                 |
-|                       3 (p[0]) <----+--------+----> 3 (p[0])                      |
-|                                     |  PIPE  |                                    |
-|                       4 (p[1]) >----+--------+----< 4 (p[1])                      |
-+---------------------------------+               +---------------------------------+
-```
+    ```
+             Parent Process                                   Child Process
+    +---------------------------------+               +--------------------------------------+
+    | File Descriptors                |               | File Descriptors                     |
+    |  0 (STDIN)  <- Terminal Input   |               |  0 (STDIN)  <- Terminal Input        |
+    |  1 (STDOUT) -> Terminal Output  |               |  1 (STDOUT) -> ------------------+   |
+    |  2 (STDERR) -> Terminal Output  |               |  2 (STDERR) -> Terminal Output   |   |
+    |                                 |               |                                  |   |
+    |                       3 (p[0]) <----+--------+----> X (p[0])  -X- CLOSED --        |   |
+    |                                     |  PIPE  |      1 (STDOUT), (p[1]) -X- CLOSED  |   |
+    |      -X- CLOSED -X-   4 (p[1]) >----+--------+----< 1 <----------------------------+   |
+    +---------------------------------+               +--------------------------------------+
+    ```
 
 This setup is exactly what we need: the parent can now use `read()` (or `get_next_line`) on its file descriptor `fd` to get the output of the `ls` command running in the child process.
