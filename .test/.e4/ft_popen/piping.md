@@ -35,7 +35,14 @@ Parent Process
 
 #### Step 2: Inside `ft_popen`, after `pipe(p)`
 
-The `pipe()` call creates a pipe and gives the parent two new file descriptors. Let's assume they are `3` and `4`. So, `p` is 3 (the read end) and `p` is 4 (the write end).
+```c
+	if (pipe(p) == -1)  // create pipe:       read p[0] --- p[1] write
+		return (-1);    //                     pipe out <<< pipe in
+```
+
+The `pipe(p)` call creates a pipe. \
+If pipe creation fails `-1` is returned. \
+If pipe creation successful, the `p` array  variable is set in the parent process to the two new file descriptors. Let's assume they are `3` and `4`. So, `p[0]` is 3 (the read end) and `p[1]` is 4 (the write end).
 
 ```
 Parent Process
@@ -53,7 +60,20 @@ Parent Process
 
 #### Step 3: After `fork()`
 
-A child process is created. It is an almost exact copy of the parent, which means it **inherits copies of all the parent's file descriptors**. Now both processes have file descriptors pointing to the same pipe.
+```c
+	if ((pid = fork()) == -1)
+	{
+		close(p[0]);
+		close(p[1]);
+		return (-1);
+	}
+```
+
+The function `fork()` creates a child process. \
+On  success, the PID of the child process is returned in the parent, and 0 is returned in the child. \
+On failure, -1 is returned in the parent, no child process is created, and errno  is  set appropriately.
+
+The child process created is an almost exact copy of the parent, which means it **inherits copies of all the parent's file descriptors**. Now both processes have file descriptors pointing to the same pipe.
 
 ```
          Parent Process                                   Child Process
@@ -69,7 +89,7 @@ A child process is created. It is an almost exact copy of the parent, which mean
 +---------------------------------+               +---------------------------------+
 ```
 
-This is the key to understanding everything that follows. There is only **one pipe**, but now four file descriptors are pointing to it.
+This is the key to understanding everything that follows. There is only **one pipe**, but now four different file descriptors are pointing to it (2 for read and 2 for write).
 
 #### Step 4: Execution in Parent and Child ('r' mode)
 
@@ -77,7 +97,20 @@ Now the processes diverge and clean up the file descriptors they don't need.
 
 **Inside the Child Process (`pid == 0`):**
 
-The child wants to *write* its output to the pipe, so it doesn't need to read from it.
+```c
+	if (pid == 0) // child process
+	{
+		// 'r' (read) mode: The parent process needs to read the output of the child
+		if (type == 'r')
+		{
+			close(p[0]);
+			if (dup2(p[1], STDOUT_FILENO) == -1)
+				exit(1);
+			close(p[1]);
+		}
+```
+
+We'd like to **read** from the child process, so the child has to **write** its output to the pipe, and it doesn't need to read from it.
 
 1.  **`close(p[0])`:** The child closes its read end (`fd 3`). This is crucial.
 
@@ -129,6 +162,16 @@ The child wants to *write* its output to the pipe, so it doesn't need to read fr
     ```
 
 **Inside the Parent Process (`pid > 0`):**
+
+```c
+	else // Parent process
+	{
+		if (type == 'r')
+		{
+			close(p[1]);
+			return (p[0]);
+		}
+```
 
 The parent wants to *read* the child's output from the pipe, so it doesn't need to write to it.
 
