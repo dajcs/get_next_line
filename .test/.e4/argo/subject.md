@@ -1,8 +1,10 @@
+Can you help me with the project below?
+
 - Assignment name: **argo**
 - Expected files: `argo.c`
 - Allowed functions: `getc`, `ungetc`, `printf`, `malloc`, `calloc`, `realloc`, `free`, `isdigit`, `fscanf`, `write`
 -----------------
-Write a function argo that will parse a json file in the structure declared in `argo.h`:
+Write function `argo()` that will parse a json file in the structure declared in `argo.h`:
 
 ```c
 int	argo(json *dst, FILE *stream);
@@ -26,8 +28,7 @@ Numbers will only be basic ints like in `scanf("%d")` \
 Handle escaping in the strings only for backslashes and quotation marks (no `\n` `\u` ...) \
 Don't handle spaces -> consider them as invalid tokens.
 
-In case of doubt how to parse json, read **rfc8259**. But you won't need it as the format is simple. Tested with the main, the output should be exactly the same as the input (except for errors).
-There are some functions in `argo.c` that might help you.
+In case of doubt how to parse json, read **rfc8259**, but it won't be needed, as the format is simple. Tested with the main, the output should be exactly the same as the input (except for errors).
 
 Examples that should work:
 
@@ -50,6 +51,7 @@ $> echo -n '{"no value?":}' | ./argo /dev/stdin | cat -e
 unexpected token '}'$
 ```
 
+There are some functions in the given code below, that can be used.
 
 GIVEN CODE
 
