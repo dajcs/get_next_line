@@ -6,7 +6,7 @@
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/17 11:23:16 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/17 16:52:02 by anemet           ###   ########.fr       */
+/*   Updated: 2025/09/18 09:25:41 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,6 +16,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+/*
+more about struct json:
+https://chatgpt.com/share/68cbb356-d15c-8000-acc6-cdf3ffb4e872
+*/
 typedef struct json
 {
 	enum						// Type of JSON values
@@ -28,7 +32,7 @@ typedef struct json
 	{
 		struct
 		{
-			struct pair *data;  // forward reference to struct through pointer
+			struct pair *data;	// forward reference to struct through pointer
 			size_t		size;
 		} map;					// MAP
 		int		integer;		// INTEGER
