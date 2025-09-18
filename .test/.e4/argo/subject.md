@@ -1,4 +1,3 @@
-Can you help me with the project below?
 
 - Assignment name: **argo**
 - Expected files: `argo.c`
