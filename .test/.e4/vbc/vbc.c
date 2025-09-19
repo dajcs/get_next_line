@@ -6,7 +6,7 @@
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/19 13:09:26 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/19 17:23:44 by anemet           ###   ########.fr       */
+/*   Updated: 2025/09/19 17:30:00 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -109,7 +109,21 @@ node *parse_factor(char **s)
 		(*s)++;
 		// ...and recursively parse the expression inside the parentheses.
 		node *ret = parse_expr(s);
+		// After the inner expression, we expect a closing parenthesis
+		if (**s != ')')
+		{
+			// If we don't find a ')', it's an error
+			unexpected(**s);
+			destroy_tree(ret); // clean up partial tree
+			return NULL;
+		}
+		// consume the ')'
+		(*s)++;
+		return ret;
 	}
+	// If it's neither a digit nor '(', it's an unexpected token
+	unexpected(**s);
+	return NULL;
 }
 
 /*            Let's examine *(*s)++
