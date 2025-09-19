@@ -6,7 +6,7 @@
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/17 11:23:16 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/18 14:27:22 by anemet           ###   ########.fr       */
+/*   Updated: 2025/09/19 13:35:49 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -22,17 +22,22 @@ https://chatgpt.com/share/68cbb356-d15c-8000-acc6-cdf3ffb4e872
 */
 typedef struct json
 {
-	enum						// Type of JSON values
+	enum						// Type of JSON values, this is the "tag"
 	{
 		MAP,
 		INTEGER,
 		STRING
 	}	type;
-	union						// payload; a JSON value can be only one of the types
+	// union is reserving single memory space for the largest member (MAP in our case)
+	// before using the variable we should set the type (tag) in order to know what is
+	// going to be stored there
+	union						// "payload" - a JSON value can be only one of the types
 	{
 		struct
 		{
 			struct pair *data;	// forward reference to struct through pointer
+								// forward reference for pointer is allowed, because
+								// the pointer size is fix, memory can be reserved in advance
 			size_t		size;
 		} map;					// MAP
 		int		integer;		// INTEGER
