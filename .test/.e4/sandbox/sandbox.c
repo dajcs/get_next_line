@@ -6,192 +6,128 @@
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/16 10:10:38 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/16 15:23:43 by anemet           ###   ########.fr       */
+/*   Updated: 2025/09/22 11:36:41 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
+/*
+
+Assignment name  : sandbox
+Expected files   : sandbox.c
+Allowed functions: fork, waitpid, exit, alarm, sigaction, kill, printf, strsignal,
+errno, sigaddset, sigemptyset, sigfillset, sigdelset, sigismember
+--------------------------------------------------------------------------------------
+
+Write the following function:
+
+#include <stdbool.h>
+int sandbox(void (*f)(void), unsigned int timeout, bool verbose);
+
+This function must test if the function f is a nice function or a bad function, you
+will return 1 if f is nice, 0 if f is bad or -1 in case of an error in your function.
+
+A function is considered bad if it is terminated or stopped by a signal (segfault, abort...),
+if it exit with any other exit code than 0 or if it times out.
+
+If verbose is true, you must write the appropriate message among the following:
+"Nice function!\n"
+"Bad function: exited with code <exit_code>\n"
+"Bad function: <signal description>\n"
+"Bad function: timed out after <timeout> seconds\n"
+
+You must not leak processes (even in zombie state, this will be checked using wait).
+
+We will test your code with very bad functions.
+
+*/
+
+#define _GNU_SOURCE
+#include <sys/types.h>
 #include <stdbool.h>
 #include <signal.h>
 #include <errno.h>
-#include <sys/wait.h>
-#include <sys/types.h>
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>  // exit()
+#include <unistd.h>  // fork(), alarm(), kill()
+#include <sys/wait.h> // waitpid(), WIFEXITED(), WIFSIGNALED(),...
 
-/* Project sandbox
-
-	Description:
-	sandbox() executes a function and determines if it is "good" or "bad".
-	The function is bad if: segfault, abort, exit code != 0 or timeout.
-
-	Key concepts:
-	- SIGNALS: handle SIGALARM for timeout
-	- FORK: execute the function f in a separate process
-	- WAITPID: get info about how the process ended
-	- ALARM: set a timeout for the function
-	- SIGNAL HANDLING: set up signal handlers
-
-	Algorithm:
-	- Fork a child process to execute the function
-	- Parent: set and alarm and wait with waitpid()
-	- Analize how the process terminates (normal, signal, timeout)
-	- Return: 1 (good), 0 (bad), -1 (error)
-*/
-
-
-// Global variable for the child process PID
+// global var for child pid
 static pid_t child_pid;
 
-// Signal handler for SIGALRM
+// alarm handler for SIGALRM
 void alarm_handler(int sig)
 {
-	/* TIMEOUT HANDLER:
-		- runs when alarm() expires
-		- doesn't need to do anything special
-		- its existance makes waitpid() return with EINTR
-	*/
-	(void)sig; // Suppress unused parameter warning
+	(void)sig;
 }
 
 int sandbox(void (*f)(void), unsigned int timeout, bool verbose)
 {
-	/* PARAMETERS:
-		- f: Function to be tested
-		- timeout: timeout in seconds
-		- verbose: if true print diagnostic messages
-
-		RETURN:
-		- (1): "good" function (exit_code == 0 && no signal interrupt && no timeout)
-		- (0): "bad" function (exit_code != 0 || terminated by signal || timeout)
-		- (-1): error in the sandbox (failed fork(), ... etc.)
-	*/
-
 	struct sigaction sa;
 	pid_t pid;
 	int status;
-	extern int errno;  // Only for IntelliSense; will be ignored if already defined
 
-	/* Set Up SIGALRM Handler:
-	- install custom handler for timeout
-	- clear the signal mask
-	- do not automatically restart syscalls
-	*/
 	sa.sa_handler = alarm_handler;
-	sa.sa_flags = 0;  // No SA_RESTART: we want waitpid to be interrupted
-	sigemptyset(&sa.sa_mask);
-	sigaction(SIGALRM, &sa, NULL);
+	sa.sa_flags = 0; // no SA_RESTART, we want waitpid interrupted
+	sigemptyset(&sa.sa_mask); // all signals excluded from the set
+	sigaction(SIGALRM, &sa, NULL); // change the action on receipt of SIGALRM to sa
 
-	/* sa.sa_flags = 0 => after SIGALRM waitpid() aborted -> return -1, EINTR
-
-            Parent process:
-             ┌───────────────┐
-             │ waitpid(child)│  <─── blocking here
-             └───────┬───────┘
-                     │
-               [3 sec pass...]
-                     │
-              Kernel delivers SIGALRM
-                     │
-             ┌───────▼─────────┐
-             │ run alarm_handler│
-             └───────┬─────────┘
-                     │
-                     │ handler returns
-                     │
-             ┌───────▼─────────────────────────────┐
-             │ waitpid() aborted → return -1, EINTR │
-             └─────────────────────────────────────┘
-
-	*/
+	if(!f)
+		return -1;
 
 	pid = fork();
 	if (pid == -1)
-		return -1;  // Error in fork
+		return -1;
 
-	/******  CHILD Process ******/
+	/* Child Process */
 	if (pid == 0)
 	{
-		/* EXECUTE f in child
-		- Call the provided function
-		- If it returns normally, exit with code 0
-		- If it crashes (segfault/abort), the kernel will send a signal
-		*/
-		f();
-		exit(0); // Function f finished normally
+		f();     // if crashes kernel sends signal
+		exit(0); // f() exited normally
 	}
 
-	/******* PARENT process *******/
+	/* Parent Process */
 	child_pid = pid;
 
-	/* Establishing TIMEOUT
-	- alarm() sends SIGALRM after timeout seconds
-	- this interrupts waitpid() if function f is still running
-	*/
-	alarm(timeout);
+	alarm(timeout); // sends SIGALRM after timetout, interrupting waitpid() if f() still running
 
-	/* Wait for CHILD process to finish
-	- waitpid() can return for various reasons:
-		- the Child terminates normally (exit)
-		- the Child is terminated by a signal
-		- waitpid() is interrupted by SIGALRM (timeout)
-	*/
-	if (waitpid(pid, &status, 0) == -1)
+	if (waitpid(pid, &status, 0) == -1)  // on error -1 is returned
 	{
-		if (errno == EINTR) // interrupted by SIGALRM
+		if (errno == EINTR)  // interrupted by system call SIGALRM  ( `errno -l`)
 		{
-			/* TIMEOUT detected:
-			- waitpid() has been interrupted by alarm
-			- the child is probably still running
-			- Kill it with SIGKILL and record its state
-			*/
 			kill(pid, SIGKILL);
-			waitpid(pid, NULL, 0); // Reap zombie process
-
-			if (verbose)
-				printf("Bad function: timed out after %d seconds\n", timeout);
-			return 0;
+			waitpid(pid, NULL, 0); // reap zombi process
 		}
-		return -1; // errno != EINTR, => sandbox error
+		if (verbose)
+			printf("Bad function: timeout after %d seconds\n", timeout);
+		return 0;
 	}
 
-	/* ANALYZE How the Process TERMINATED */
-	if (WIFEXITED(status))
+	if (WIFEXITED(status))   // normal termination exit
 	{
-		/* NORMAL Termination (exit):
-		- The process called exit() or returned from main
-		- Check the exit code
-		*/
-		if (WEXITSTATUS(status) == 0)
+		if (WEXITSTATUS(status) == 0)  // nice function
 		{
 			if (verbose)
 				printf("Nice function!\n");
-			return 1; // "good" function
+			return 1;
 		}
-		else
+		else  // bad function
 		{
 			if (verbose)
-				printf("Bad function: exited with code %d\n", WEXITSTATUS(status));
-			return 0; // "bad" function
+				printf("Bad function, exited with code %d\n", WEXITSTATUS(status));
+			return 0;
 		}
 	}
 
-	if (WIFSIGNALED(status))
+	if (WIFSIGNALED(status)) // process killed by SIGNAL
 	{
-		/* TERMINATION by SIGNAL
-		- the process was killed by a signal (segfault, abort, etc.)
-		- get signal number for diagnostics
-		*/
 		int sig = WTERMSIG(status);
 		if (verbose)
 			printf("Bad function: %s\n", strsignal(sig));
-		return 0; // "bad" function
+		return 0; // bad function
 	}
-
-	return -1; // Unrecognized status
+	return -1; // sandbox fail
 }
-
 
 /* EXAMPLES of Functions to be tested */
 
