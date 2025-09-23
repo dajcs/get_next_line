@@ -5,66 +5,69 @@
 /*                                                    +:+ +:+         +:+     */
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/09/15 10:46:24 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/15 17:11:58 by anemet           ###   ########.fr       */
+/*   Created: 2025/09/23 15:49:38 by anemet            #+#    #+#             */
+/*   Updated: 2025/09/23 17:03:35 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-/* picoshell()
+/*
+Assignment name:	picoshell
+Expected files:		picoshell.c
+Allowed functions:	close, fork, wait, exit, execvp, dup2, pipe
+___________________________________________________________________
 
-	Implement the picoshell() function which is executing command pipelines:
-	the output of a command is feed as input to the next command
+Write the following function:
 
-	Key concepts:
-	1.) Pipeline: command chain connected by pipes
-	2.) Multiple processes: a fork for each command
-	3.) Redirection: connecting STDOUT of a cmd to STDIN for the next one
-	4.) Sinchronization: wait for all processes to finish
-	5.) File descriptors: open and close fd-s at the right moment
+int    picoshell(char **cmds[]);
 
-	Algorithm:
-	1.) for each command (except the last one) create a pipe
-	2.) fork() the process for the actual cmd
-	3.) child process: configure STDIN/STDOUT and execute the command
-	4.) parent process: fd redirect and continuing with the next command
-	5.) wait for all processes to finish
+The goal of this function is to execute a pipeline. It must execute each
+commands of cmds and connect the output of one to the input of the
+next command (just like a shell).
+e
+Cmds contains a null-terminated list of valid commands. Each rows
+of cmds are an argv array directly usable for a call to execvp. The first
+arguments of each command is the command name or path and can be passed
+directly as the first argument of execvp.
+
+If any error occur, The function must return 1 (you must of course
+close all the open fds before). otherwise the function must wait all child
+processes and return 0. You will find in this directory a file main.c which
+contain something to help you test your function.
+
+
+Examples:
+./picoshell /bin/ls "|" /usr/bin/grep picoshell
+picoshell
+./picoshell echo 'squalala' "|" cat "|" sed 's/a/b/g'
+squblblb
 */
 
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include <string.h>
+#include <stdio.h>
 
-/* picoshell()
-	cmds: Array of string arrays
-	e.g.:
-	cmds[0] = {"ls", "-l", NULL}
-	cmds[1] = {"grep", "txt", NULL}
-	cmds[2] = NULL (terminator)
-
-	Return:
-		0 - if all cmds executed without error
-		1 - if a command or a syscall got an error
-*/
 int picoshell(char **cmds[])
 {
-	pid_t pid;
-	int pipefd[2];		// actual pipe
-	int prev_fd = -1;	// previous file descriptor
-	int status;
+	int prev_fd = -1;
+	int pipefd[2];
 	int exit_code = 0;
+	int status;
+	pid_t pid;
 	int i = 0;
 
-	// The main loop - processing each command in the pipeline
+	if (!cmds || !cmds[0])
+		return 1;
+
 	while (cmds[i])
 	{
-		// create pipe for all commands (except the last one)
-		if (cmds[i+1] && pipe(pipefd) == -1)
-			return 1;  // if pipe creation fails, return 1
-
-		// fork() process for the current command
+		if (cmds[i + 1])
+		{
+			if (pipe(pipefd) == -1)
+				return 1;
+		}
 		pid = fork();
-
-		// if error in fork(), close fd-s and return 1
 		if (pid == -1)
 		{
 			if (cmds[i + 1])
@@ -74,67 +77,82 @@ int picoshell(char **cmds[])
 			}
 			return 1;
 		}
-
-		// Child process:
+		// child process
 		if (pid == 0)
 		{
-			// configuring STDIN for child:
-			// 	if prev_fd: read previous cmd output from there
+			// if prev cmd, dup2 prev_fd = STDIN
 			if (prev_fd != -1)
 			{
-				// make prev_fd become the new STDIN
 				if (dup2(prev_fd, STDIN_FILENO) == -1)
-					exit(1); // exit child with fault code 1 if dup2 fails
-				close(prev_fd); // we don't need it, STDIN is enough for us
+					exit(1);
+				close(prev_fd);
 			}
-
-			// configuring STDOUT for child:
-			// 	if there is next cmd, current command should write to pipe
+			// if next cmd dup2 pipe write = STDOUT
+			// 		and close current pipe read
 			if (cmds[i + 1])
 			{
-				close(pipefd[0]); // close pipe read end (we don't need it)
-				// make pipefd[1] (pipe write) the new STDOUT
+				close(pipefd[0]);
 				if (dup2(pipefd[1], STDOUT_FILENO) == -1)
-					exit(1); // exit child with fault code 1 if dup2 fails
-				close(pipefd[1]); // we don't need it, STDOUT is enough
+					exit(1);
+				close(pipefd[1]);
 			}
-
-			// execute the command
+			// execute cmd
 			execvp(cmds[i][0], cmds[i]);
-			exit(1); // executed only if execvp(0) fails
+			exit(1); // normally not reached
 		}
-
-		// Parent process
-
-		// if prev_fd != -1: close it (prev_fd is used only by the child process)
-		if (prev_fd != -1)
-			close(prev_fd);
-
-		// current pipe management:
-		if (cmds[i + 1])
+		// parent process
+		else
 		{
-			close(pipefd[1]);   // close current pipe write
-			prev_fd = pipefd[0]; // save current pipe read for the next cmd
+			if (prev_fd != -1)
+				close(prev_fd); // prev_fd used by child only
+
+			// if next cmd, save pipe read = prev_fd
+			if (cmds[i + 1])
+			{
+				close(pipefd[1]); // close current pipe write
+				prev_fd = pipefd[0];
+			}
 		}
-
-		i++;
+		i++; // next cmd
 	}
-
-	// Wait for all child processes to close
+	// wait for processes to end
 	while(wait(&status) != -1)
 	{
 		if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
 			exit_code = 1;
 	}
-
 	return exit_code;
 }
 
-// Example of picoshell() usage from main:
+int main()
+{
 
-#include <stdio.h>
-#include <string.h>
+	char *cmd1[] = {"ls", NULL};
+	char *cmd2[] = {"grep", "c", NULL};
+	char **cmds[] = {cmd1, cmd2, NULL};
 
+	// Test 1
+    // char *cmd1[] = {"echo", "Hello World", NULL};
+    // char **cmds[] = {cmd1, NULL};
+
+	// Test 2
+    // char *cmd1[] = {"echo", "Pipeline Test", NULL};
+    // char *cmd2[] = {"cat", NULL};
+    // char **cmds[] = {cmd1, cmd2, NULL};
+
+	// Test 3
+    // char *cmd1[] = {"echo", "word1 word2 word3", NULL};
+    // char *cmd2[] = {"cat", NULL};
+    // char *cmd3[] = {"wc", "-w", NULL};
+    // char **cmds[] = {cmd1, cmd2, cmd3, NULL};
+
+	// Test empty cmds
+    // char **cmds[] = {NULL};
+
+	// int exit_code = picoshell(cmds);
+	// printf("\nexit_code: %d\n\n", exit_code);
+}
+/*
 static int count_cmds(int argc, char **argv)
 {
     int count = 1;
@@ -188,6 +206,7 @@ int main(int argc, char **argv)
 
     return ret;
 }
+ */
 
 
 /* The diagram of "ls | grep txt | wc -l" pipeline
