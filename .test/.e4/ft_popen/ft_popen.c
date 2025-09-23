@@ -6,7 +6,7 @@
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/12 14:09:32 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/13 14:12:47 by anemet           ###   ########.fr       */
+/*   Updated: 2025/09/23 12:22:44 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -63,4 +63,47 @@ int	ft_popen(const char *file, char *const argv[], char type)
 		}
 	}
 	return (-1); // Should not be reached
+}
+
+
+#include <stdio.h>
+
+char *get_next_line(int fd)
+{
+    FILE *stream;
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t nread;
+
+    // Associate a stream with the file descriptor
+    stream = fdopen(fd, "r");
+    if (stream == NULL) {
+        return NULL;
+}
+
+    // Read a line using getline()
+    nread = getline(&line, &len, stream);
+
+    if (nread == -1) {
+        // End of file or error
+        free(line);
+        // Do not close the stream here if you want to continue using the fd elsewhere
+        // as fdopen does not duplicate the file descriptor. Closing the stream
+        // will close the underlying file descriptor.
+        return NULL;
+    }
+
+    return line;
+}
+
+
+
+
+int	main() {
+	int	fd = ft_popen("ls", (char *const []){"ls", NULL}, 'r');
+	dup2(fd, 0);
+	fd = ft_popen("grep", (char *const []){"grep", "c", NULL}, 'r');
+	char	*line;
+	while ((line = get_next_line(fd)))
+		printf("%s", line);
 }
