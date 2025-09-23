@@ -5,8 +5,8 @@
 /*                                                    +:+ +:+         +:+     */
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/09/16 10:10:38 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/22 11:36:41 by anemet           ###   ########.fr       */
+/*   Created: 2025/09/23 20:22:40 by anemet            #+#    #+#             */
+/*   Updated: 2025/09/23 22:14:40 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -42,24 +42,26 @@ We will test your code with very bad functions.
 */
 
 #define _GNU_SOURCE
+
 #include <sys/types.h>
-#include <stdbool.h>
+#include <sys/wait.h>
 #include <signal.h>
-#include <errno.h>
+#include <unistd.h>
+#include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
-#include <stdlib.h>  // exit()
-#include <unistd.h>  // fork(), alarm(), kill()
-#include <sys/wait.h> // waitpid(), WIFEXITED(), WIFSIGNALED(),...
+#include <errno.h>
+#include <stdlib.h>
 
 // global var for child pid
-static pid_t child_pid;
+// static pid_t child_pid;
 
 // alarm handler for SIGALRM
 void alarm_handler(int sig)
 {
 	(void)sig;
 }
+
 
 int sandbox(void (*f)(void), unsigned int timeout, bool verbose)
 {
@@ -72,7 +74,7 @@ int sandbox(void (*f)(void), unsigned int timeout, bool verbose)
 	sigemptyset(&sa.sa_mask); // all signals excluded from the set
 	sigaction(SIGALRM, &sa, NULL); // change the action on receipt of SIGALRM to sa
 
-	if(!f)
+	if (!f)
 		return -1;
 
 	pid = fork();
@@ -82,28 +84,28 @@ int sandbox(void (*f)(void), unsigned int timeout, bool verbose)
 	/* Child Process */
 	if (pid == 0)
 	{
-		f();     // if crashes kernel sends signal
+		f(); // if crashes kernel sends signal
 		exit(0); // f() exited normally
 	}
 
 	/* Parent Process */
-	child_pid = pid;
+	// child_pid = pid;
 
-	alarm(timeout); // sends SIGALRM after timetout, interrupting waitpid() if f() still running
+	alarm(timeout); // sends SIGALRM after timeout, interrupting waitpid() if f() still running
 
-	if (waitpid(pid, &status, 0) == -1)  // on error -1 is returned
+	if (waitpid(pid, &status, 0) == -1)   // waitpid returns -1 on some type of error
 	{
-		if (errno == EINTR)  // interrupted by system call SIGALRM  ( `errno -l`)
+		if (errno == EINTR)  // interrupted by system call SIGALRM (check bash cmd: `errno -l`)
 		{
 			kill(pid, SIGKILL);
 			waitpid(pid, NULL, 0); // reap zombi process
 		}
 		if (verbose)
-			printf("Bad function: timeout after %d seconds\n", timeout);
+			printf("Bad function: timed out after %d seconds\n", timeout);
 		return 0;
 	}
 
-	if (WIFEXITED(status))   // normal termination exit
+	if (WIFEXITED(status))  // normal (not SIGNAL) termination
 	{
 		if (WEXITSTATUS(status) == 0)  // nice function
 		{
@@ -124,12 +126,15 @@ int sandbox(void (*f)(void), unsigned int timeout, bool verbose)
 		int sig = WTERMSIG(status);
 		if (verbose)
 			printf("Bad function: %s\n", strsignal(sig));
-		return 0; // bad function
+		return 0;  // bad function
 	}
-	return -1; // sandbox fail
+
+	return -1;  // sandbox fail
 }
 
+
 /* EXAMPLES of Functions to be tested */
+
 
 void nice_function(void)
 {
