@@ -5,13 +5,12 @@
 /*                                                    +:+ +:+         +:+     */
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/09/22 21:05:50 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/23 07:53:21 by anemet           ###   ########.fr       */
+/*   Created: 2025/09/23 09:20:48 by anemet            #+#    #+#             */
+/*   Updated: 2025/09/23 10:56:18 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 /*
-
 
 Assignment name  : vbc
 Expected files   : *.c *.h
@@ -64,6 +63,15 @@ Unexpected token '2'$
 
 */
 
+
+// GIVEN CODE
+
+
+/* ********** vbc.h **********
+
+#ifndef VBC_H
+# define VBC_H
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -79,19 +87,38 @@ typedef struct node {
     struct node *r;
 }   node;
 
+// Function prototypes
+node    *new_node(node n);
+void    destroy_tree(node *n);
+void    unexpected(char c);
+int     accept(char **s, char c);
+int     expect(char **s, char c);
+node    *parse_expr(char *s);
+node    *parse_expression(char **s);
+node    *parse_term(char **s);
+node    *parse_factor(char **s);
+int     eval_tree(node *tree);
+
+#endif
+*/
+
+#include "vbc.h"
+
+// reserve node n in heap
+// copy n from stack to heap
 node    *new_node(node n)
 {
     node *ret = calloc(1, sizeof(n));
     if (!ret)
-        // return (NULL);
-        exit(1); // subject description allows this
+        return (NULL);
     *ret = n;
     return (ret);
 }
 
+// destroy tree recursively
 void    destroy_tree(node *n)
 {
-    if (!n)
+    if (!n)          // base case
         return ;
     if (n->type != VAL)
     {
@@ -101,6 +128,7 @@ void    destroy_tree(node *n)
     free(n);
 }
 
+// print unexpected token/EOF
 void    unexpected(char c)
 {
     if (c)
@@ -109,6 +137,8 @@ void    unexpected(char c)
         printf("Unexpected end of input\n");
 }
 
+// if c is next char, consume it and return 1
+// otherwise return 0
 int accept(char **s, char c)
 {
     if (**s == c)
@@ -119,6 +149,8 @@ int accept(char **s, char c)
     return (0);
 }
 
+// if c is next char, consume it and return 1
+// otherwise print unexpected c/EOF and return 0
 int expect(char **s, char c)
 {
     if (accept(s, c))
@@ -127,130 +159,124 @@ int expect(char **s, char c)
     return (0);
 }
 
-
-// forward definition of parse_expr()
-node *parse_expr(char **s);
-
+// forward definition of parse_expression()
+// node *parse_expression(char **s);
 
 /* parse_factor()
-    - a number or an expression in parenthesis
+	- expression is a sum of terms
+	- term is a multiplication of factors
+	> FACTOR is an int value or an expression in ()
 */
 node *parse_factor(char **s)
 {
-    if (isdigit(**s))
-    {
-        // return new VAL node with the digit value
-        node *ret = new_node((node){VAL, **s - '0', NULL, NULL});
-        (*s)++;
-        return ret;
-    }
-    // if opening parenthesis -> evaluate expression
-    if (**s == '(')
-    {
-        // consume '('
-        (*s)++;
-        // parse expression
-        node *ret = parse_expr(s);
-        // check closing ')'
-        if (**s != ')')
-        {
-            // unexpected(**s);   unexpected wi
-            destroy_tree(ret);
-            return NULL;
-        }
-        // consume ')'
-        (*s)++;
-        return ret;
-    }
-    // if neither digit , neither opening parenthesis
-    unexpected(**s);
-    return NULL;
+	// check for INT
+	if (isdigit(**s))
+	{
+		// add new VAL node
+		node *ret = new_node((node){VAL, **s - '0', NULL, NULL});
+		if (!ret)
+			return NULL;
+		(*s)++;  // consume digit
+		return ret;
+	}
+	// check for '('
+	if (accept(s, '('))
+	{
+		// evaluate expression
+		node *ret = parse_expression(s);
+		if (!ret)
+			return NULL;
+		// check for closing ')'
+		if (!expect(s, ')'))
+			return NULL;
+		return ret;
+	}
+	// if neither digit, neither '(' then unexpected token
+	unexpected(**s);
+	return NULL;
 }
 
 
 /* parse_term()
-    - terms: series of factors multiplied together (handling '*')
-    - factor: a number or an expression in parenthesis
-    Return NULL on error
+	- expression is a sum of terms
+	> TERM is a multiplication of factors
+	- factor is an int value or an expression in ()
 */
 node *parse_term(char **s)
 {
-    // must start with a factor
-    node *ret = parse_factor(s);
-    if (!ret)
-        return NULL;
+	// starts with a factor
+	node *left = parse_factor(s);
+	if (!left)
+		return NULL;
 
-    // after first factor we loop until we see '*' operators
-    while (**s == '*')
-    {
-        // consume '*'
-        (*s)++;
-        node *right = parse_factor(s);
-        if (!right)
-        {
-            destroy_tree(ret);
-            return NULL;
-        }
-        // create MULTI node with (ret, right)
-        ret = new_node((node){MULTI, 0, ret, right});
-    }
-    return ret;
+	// checking for more factors on the right
+	while (accept(s, '*'))  // if next c is '*' consume it and parse right
+	{
+		node *right = parse_factor(s);
+		if (!right)
+		{
+			destroy_tree(left);
+			return NULL;
+		}
+		// create new MULTI node as left factor
+		left = new_node((node){MULTI, 0, left, right});
+		if (!left)
+		{
+			destroy_tree(right);
+			return NULL;
+		}
+	}
+	return left;
 }
 
-
-/* parse_expr()
-    - expr: series of terms added together (handling '+'), lowest level of precedence
-    - terms: series of factors multiplied together (handling '*')
-    - factor: a number or an expression in parenthesis
-    Return NULL on error
+/* parse_expression()
+	> EXPRESSION is a sum of terms
+	- terms is a multiplication of factors
+	- factor is an int value or an expression in ()
 */
-node *parse_expr(char **s)
+node *parse_expression(char **s)
 {
-    // must start with a term
-    node *ret = parse_term(s);
-    if (!ret)
-        return NULL;
+	// starts with a term
+	node *left = parse_term(s);
+	if (!left)
+		return NULL;
 
-    // after the 1st term we loop until we see '+' operators
-    while (**s == '+')
-    {
-        // consume '+'
-        (*s)++;
-        node *right = parse_term(s);
-        if (!right)
-        {
-            destroy_tree(ret);
-            return NULL;
-        }
-        // create new ADD node with (ret, right)
-        ret = new_node((node){ADD, 0, ret, right});
-    }
-    return ret;
+	// checking for more terms on the right
+	while (accept(s, '+'))      // if next c is '+' consume it and parse right
+	{
+		node *right = parse_term(s);
+		if (!right)
+		{
+			destroy_tree(left);
+			return NULL;
+		}
+		// create new ADD node as a left term
+		left = new_node((node){ADD, 0, left, right});
+		if (!left)
+		{
+			destroy_tree(right);
+			return NULL;
+		}
+	}
+	return left;
 }
 
 
-
-
-
-
-node    *parse_main(char *s)
+node    *parse_expr(char *s)
 {
-    node *ret = parse_expr(&s);
+    node *ret = parse_expression(&s);
+	if (!ret)
+		return NULL;
 
-    // if s is not pointing the the end of the string '\0'
-    // this means parsing failed, return NULL
+// if there are characters left in s after parsing -> gempa
     if (*s)
     {
-        unexpected(*s);
+		unexpected(*s);
         destroy_tree(ret);
         return (NULL);
     }
     return (ret);
 }
-
-
-
-
 
 int eval_tree(node *tree)
 {
@@ -263,18 +289,16 @@ int eval_tree(node *tree)
         case VAL:
             return (tree->val);
     }
-    return 0; // this shouldn't be reached in an ideal world
+	return 0; // should not be reached
 }
 
 int main(int argc, char **argv)
 {
     if (argc != 2)
         return (1);
-    node *tree = parse_main(argv[1]);
+    node *tree = parse_expr(argv[1]);
     if (!tree)
         return (1);
     printf("%d\n", eval_tree(tree));
     destroy_tree(tree);
 }
-
-
