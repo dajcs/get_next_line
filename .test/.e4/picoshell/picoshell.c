@@ -6,7 +6,7 @@
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/23 15:49:38 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/23 17:03:35 by anemet           ###   ########.fr       */
+/*   Updated: 2025/09/24 13:38:28 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -42,31 +42,34 @@ picoshell
 squblblb
 */
 
+
+#define _GNU_SOURCE
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/wait.h>
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
 
 int picoshell(char **cmds[])
 {
-	int prev_fd = -1;
 	int pipefd[2];
-	int exit_code = 0;
 	int status;
+	int prev_fd = -1;
+	int exit_code = 0;
 	pid_t pid;
 	int i = 0;
 
 	if (!cmds || !cmds[0])
-		return 1;
+		return -1;
 
 	while (cmds[i])
 	{
 		if (cmds[i + 1])
 		{
 			if (pipe(pipefd) == -1)
-				return 1;
+				return -1;
 		}
+
 		pid = fork();
 		if (pid == -1)
 		{
@@ -75,48 +78,55 @@ int picoshell(char **cmds[])
 				close(pipefd[0]);
 				close(pipefd[1]);
 			}
-			return 1;
+			return -1;
 		}
-		// child process
+
+		/* Child Process */
 		if (pid == 0)
 		{
-			// if prev cmd, dup2 prev_fd = STDIN
+			// if prev_fd: prev_fd read = STDIN
 			if (prev_fd != -1)
 			{
 				if (dup2(prev_fd, STDIN_FILENO) == -1)
 					exit(1);
 				close(prev_fd);
 			}
-			// if next cmd dup2 pipe write = STDOUT
-			// 		and close current pipe read
+
+			// if cmds[i+1]: pipe write = STDOUT
 			if (cmds[i + 1])
 			{
-				close(pipefd[0]);
+				close(pipefd[0]); // close pipe read in child
+									// it will become prev_fd in parent
 				if (dup2(pipefd[1], STDOUT_FILENO) == -1)
 					exit(1);
 				close(pipefd[1]);
 			}
-			// execute cmd
+			// execute process
 			execvp(cmds[i][0], cmds[i]);
-			exit(1); // normally not reached
+			exit(0); // this should not be reached
 		}
-		// parent process
+		/* Parent Process */
 		else
 		{
+			// if prev_fd: close it, it is used by child process input
 			if (prev_fd != -1)
-				close(prev_fd); // prev_fd used by child only
+				close(prev_fd);
 
-			// if next cmd, save pipe read = prev_fd
-			if (cmds[i + 1])
+			// if cmds[i+1]: save pipe read = prev_fd
+			if (cmds[i+1])
 			{
-				close(pipefd[1]); // close current pipe write
 				prev_fd = pipefd[0];
+				close(pipefd[1]); // close pipe write in parent
+									// it is used by child cmd output
 			}
 		}
-		i++; // next cmd
+		i++;
 	}
-	// wait for processes to end
-	while(wait(&status) != -1)
+
+	// wait for all processes to finish
+	// wait is waiting for a child process to finish and stores result in status
+	// when there are no more child processes then returns -1 (error: no child process)
+	while (wait(&status) != -1)
 	{
 		if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
 			exit_code = 1;
