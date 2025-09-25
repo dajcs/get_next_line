@@ -5,8 +5,8 @@
 /*                                                    +:+ +:+         +:+     */
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/09/23 20:22:40 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/23 22:14:40 by anemet           ###   ########.fr       */
+/*   Created: 2025/09/25 14:00:20 by anemet            #+#    #+#             */
+/*   Updated: 2025/09/25 15:35:21 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -30,10 +30,10 @@ A function is considered bad if it is terminated or stopped by a signal (segfaul
 if it exit with any other exit code than 0 or if it times out.
 
 If verbose is true, you must write the appropriate message among the following:
-"Nice function!\n"
-"Bad function: exited with code <exit_code>\n"
-"Bad function: <signal description>\n"
-"Bad function: timed out after <timeout> seconds\n"
+"Nice function!"
+"Bad function: exited with code <exit_code>"
+"Bad function: <signal description>"
+"Bad function: timed out after <timeout> seconds"
 
 You must not leak processes (even in zombie state, this will be checked using wait).
 
@@ -42,37 +42,62 @@ We will test your code with very bad functions.
 */
 
 #define _GNU_SOURCE
-
-#include <sys/types.h>
 #include <sys/wait.h>
-#include <signal.h>
+#include <sys/types.h>
 #include <unistd.h>
-#include <stdbool.h>
-#include <string.h>
-#include <stdio.h>
-#include <errno.h>
 #include <stdlib.h>
+#include <signal.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
+#include <errno.h>
 
-// global var for child pid
-// static pid_t child_pid;
-
-// alarm handler for SIGALRM
 void alarm_handler(int sig)
 {
 	(void)sig;
 }
 
-
 int sandbox(void (*f)(void), unsigned int timeout, bool verbose)
 {
-	struct sigaction sa;
 	pid_t pid;
-	int status;
+	int	status;
 
+	// man 7 signal
+
+	/* man 2 sigaction
+           struct sigaction {
+               void     (*sa_handler)(int);		--> a void function that expects (int sig)
+               void     (*sa_sigaction)(int, siginfo_t *, void *);  X enough to set sa_handler
+               sigset_t   sa_mask;    			--> set it with sigemptyset(&sa.sa_mask)
+               int        sa_flags;   			--> int, set it to 0
+               void     (*sa_restorer)(void);
+           };
+	*/
+
+	/* man 3 sigaction
+           static void handler(int signum)
+           {
+               // Take appropriate actions for signal delivery
+           }
+
+		   int main()
+           {
+               struct sigaction sa;
+
+               sa.sa_handler = handler;
+               sigemptyset(&sa.sa_mask);
+               sa.sa_flags = SA_RESTART; // Restart functions if interrupted by handler
+               if (sigaction(SIGINT, &sa, NULL) == -1)
+                   // Handle error ;
+               // Further code
+           }
+	*/
+	struct sigaction sa;
 	sa.sa_handler = alarm_handler;
-	sa.sa_flags = 0; // no SA_RESTART, we want waitpid interrupted
-	sigemptyset(&sa.sa_mask); // all signals excluded from the set
-	sigaction(SIGALRM, &sa, NULL); // change the action on receipt of SIGALRM to sa
+	sigemptyset(&sa.sa_mask); // sets sa.sa_mask to exclude additional signals from the set
+	sa.sa_flags = 0;  // no SA_RESTART; we need waitpid() interrupted by SIGALRM
+	if (sigaction(SIGALRM, &sa, NULL) == -1) // change the action on receipt of SIGALRM to sa
+		return -1;
 
 	if (!f)
 		return -1;
@@ -84,18 +109,22 @@ int sandbox(void (*f)(void), unsigned int timeout, bool verbose)
 	/* Child Process */
 	if (pid == 0)
 	{
-		f(); // if crashes kernel sends signal
-		exit(0); // f() exited normally
+		f();   // execute function, if crashes kernel sends signal
+		exit(0); // f() exited without signal
 	}
 
-	/* Parent Process */
-	// child_pid = pid;
+	/* Parent process */
 
-	alarm(timeout); // sends SIGALRM after timeout, interrupting waitpid() if f() still running
+	// check timeout
+	alarm(timeout); // kernel sends SIGALRM after timeout
+					// interrupting waitpid() if f() still running
 
-	if (waitpid(pid, &status, 0) == -1)   // waitpid returns -1 on some type of error
+	if (waitpid(pid, &status, 0) == -1) // sets status
+										// returns -1 on some kind of error, e.g. interrupt
 	{
-		if (errno == EINTR)  // interrupted by system call SIGALRM (check bash cmd: `errno -l`)
+		// bash cmd: `errno -l | grep -i interrupt`
+		// EINTR 4 Interrupted system call
+		if (errno == EINTR)		//interrupted by kernel SIGALRM
 		{
 			kill(pid, SIGKILL);
 			waitpid(pid, NULL, 0); // reap zombi process
@@ -105,32 +134,37 @@ int sandbox(void (*f)(void), unsigned int timeout, bool verbose)
 		return 0;
 	}
 
-	if (WIFEXITED(status))  // normal (not SIGNAL) termination
+	// man sys_wait.h
+
+	// check "normal" (not signal) exit
+	if (WIFEXITED(status))
 	{
-		if (WEXITSTATUS(status) == 0)  // nice function
+		if (WEXITSTATUS(status) == 0)
 		{
 			if (verbose)
 				printf("Nice function!\n");
 			return 1;
 		}
-		else  // bad function
+		else
 		{
 			if (verbose)
-				printf("Bad function, exited with code %d\n", WEXITSTATUS(status));
+				printf("Bad function: exited with code %d\n", WEXITSTATUS(status));
 			return 0;
 		}
 	}
 
-	if (WIFSIGNALED(status)) // process killed by SIGNAL
+	// check signalled exit
+	if (WIFSIGNALED(status))
 	{
 		int sig = WTERMSIG(status);
 		if (verbose)
 			printf("Bad function: %s\n", strsignal(sig));
-		return 0;  // bad function
+		return 0;
 	}
 
-	return -1;  // sandbox fail
+	return -1;  // sandbox error
 }
+
 
 
 /* EXAMPLES of Functions to be tested */
@@ -208,7 +242,7 @@ int main()
 	printf("Result: %d\n\n", result); // Expecting 0
 
 	printf("Testing bad_function_timeout():\n");
-	result = sandbox(bad_function_timeout, 5, true);
+	result = sandbox(bad_function_timeout, 2, true);
 	printf("Result: %d\n\n", result); // Expecting 0
 
 	printf("Testing bad_function_abort():\n");
