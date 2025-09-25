@@ -5,57 +5,107 @@
 /*                                                    +:+ +:+         +:+     */
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/09/17 11:23:16 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/19 13:35:49 by anemet           ###   ########.fr       */
+/*   Created: 2025/09/25 09:48:20 by anemet            #+#    #+#             */
+/*   Updated: 2025/09/25 13:18:50 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
+/*
+
+Assignment name: argo
+Expected files: argo.c
+Allowed functions: getc, ungetc, printf, malloc, calloc, realloc,
+					free, isdigit, fscanf, write
+-----------------
+Write a function argo that will parse a json file in the structure declared in argo.h:
+
+int	argo(json *dst, FILE *stream);
+
+	dst	- is the pointer to the AST that you will create
+	stream	- is the file to parse (man FILE)
+
+Your function will return 1 for success and -1 for failure.
+If an unexpected token is found you will print the following message in stdout:
+"Unexpected token '%c'"
+
+or if the token is EOF:
+"Unexpected end of input"
+
+Only handle numbers, strings and maps.
+Numbers will only be basic ints like in scanf("%d")
+Handle escaping in the strings only for backslashes and quotation marks (no \u ...)
+Don't handle spaces -> consider them as invalid tokens.
+
+In case of doubt how to parse json, read rfc8259.
+But you won't need it as the format is simple. Tested with the main,
+the output should be exactly the same as the input (except for errors).
+There are some functions in argo.c that might help you.
+
+Examples that should work:
+
+$> echo -n '1' | ./argo /dev/stdin | cat -e
+1$
+$> echo -n '"bonjour"' | ./argo /dev/stdin | cat -e
+"bonjour"$
+$> echo -n '"escape! \" "' | ./argo /dev/stdin | cat -e
+"escape! \" "$
+$> echo -n '{"tomatoes":42,"potatoes":234}' | ./argo /dev/stdin | cat -e
+{"tomatoes":42,"potatoes":234}$
+$> echo -n '{"recursion":{"recursion":{"recursion":{"recursion":"recursion"}}}}' | ./argo /dev/stdin | cat -e
+{"recursion":{"recursion":{"recursion":{"recursion":"recursion"}}}}$
+$> echo -n '"unfinished string' | ./argo /dev/stdin | cat -e
+unexpected end of input$
+$> echo -n '"unfinished string 2\"' | ./argo /dev/stdin | cat -e
+unexpected end of input$
+$> echo -n '{"no value?":}' | ./argo /dev/stdin | cat -e
+unexpected token '}'$
+
+*/
+
+
 #include <stdio.h>
 #include <stdbool.h>
-#include <ctype.h>            // isdigit()
+#include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
 
-/*
-more about JSON struct:
-https://chatgpt.com/share/68cbb356-d15c-8000-acc6-cdf3ffb4e872
-*/
-typedef struct json
+
+typedef struct	json
 {
-	enum						// Type of JSON values, this is the "tag"
+	enum
 	{
 		MAP,
 		INTEGER,
 		STRING
-	}	type;
-	// union is reserving single memory space for the largest member (MAP in our case)
-	// before using the variable we should set the type (tag) in order to know what is
-	// going to be stored there
-	union						// "payload" - a JSON value can be only one of the types
+	} type;
+
+	union	// means one of: map / int / char *
+			// saving memory by reserving the biggest member size (map in our case)
 	{
 		struct
-		{
-			struct pair *data;	// forward reference to struct through pointer
-								// forward reference for pointer is allowed, because
-								// the pointer size is fix, memory can be reserved in advance
-			size_t		size;
-		} map;					// MAP
-		int		integer;		// INTEGER
-		char	*string;		// STRING
+			{
+				struct pair	*data;  // pointer to pair* struc:
+									//	- forward definition allowed
+									//	- multiple key:value pairs can be stored
+									//		similar when having e.g., char *
+				size_t		size;
+			} map;
+		int	integer;
+		char	*string;
 	};
+}	json;
 
-} json;
-
-typedef struct pair
-{
+typedef struct	pair {
 	char	*key;
 	json	value;
 }	pair;
 
+void	free_json(json j);
+int	argo(json *dst, FILE *stream);
+int parse_json(FILE *stream, json *out);
 
-
-/***************** Provided helper functions ****************/
-
+// take a look on the next c
+// put it back into the stream, Return c
 int	peek(FILE *stream)
 {
 	int	c = getc(stream);
@@ -63,15 +113,18 @@ int	peek(FILE *stream)
 	return c;
 }
 
+// print unexpected token / EOF for next c in stream
 void	unexpected(FILE *stream)
 {
 	if (peek(stream) != EOF)
-		printf("Unexpected token '%c'\n", peek(stream));
+		printf("unexpected token '%c'\n", peek(stream));
 	else
-		printf("Unexpected end of input\n");
+		printf("unexpected end of input\n");
 }
 
-int accept(FILE *stream, char c)
+// if next char in stream == c: consume it, Return 1
+//	else: Return 0
+int	accept(FILE *stream, char c)
 {
 	if (peek(stream) == c)
 	{
@@ -81,7 +134,9 @@ int accept(FILE *stream, char c)
 	return 0;
 }
 
-int expect(FILE *stream, char c)
+// if next char in stream == c: consume it, Return 1
+//	else: print unexpected token/EOF, Return 0
+int	expect(FILE *stream, char c)
 {
 	if (accept(stream, c))
 		return 1;
@@ -89,132 +144,72 @@ int expect(FILE *stream, char c)
 	return 0;
 }
 
-void free_json(json j)
-{
-	switch (j.type)
-	{
-		case MAP:
-				for (size_t i = 0; i < j.map.size; i++)
-				{
-					free(j.map.data[i].key);
-					free_json(j.map.data[i].value);
-				}
-				free(j.map.data);
-				break;
-		case STRING:
-				free(j.string);
-				break;
-		default:
-				break;
-	}
-}
-
-void serialize(json j)
-{
-	switch (j.type)
-	{
-		case INTEGER:
-			printf("%d", j.integer);
-			break;
-		case STRING:
-			putchar('"');
-			for (int i = 0; j.string[i]; i++)
-			{
-				if (j.string[i] == '\\' || j.string[i] == '"')
-					putchar('\\');
-				putchar(j.string[i]);
-			}
-			putchar('"');
-			break;
-		case MAP:
-			putchar('{');
-			for (size_t i = 0; i < j.map.size; i++)
-			{
-				if (i != 0)
-					putchar(',');
-				serialize((json){.type = STRING, .string = j.map.data[i].key});
-				putchar(':');
-				serialize(j.map.data[i].value);
-			}
-			putchar('}');
-			break;
-	}
-}
-
-/***************** End of provided helper functions ****************/
-
-// Forward declaration of the recursive parser
-static int parse_json(FILE *stream, json *out);
-
-/* parse_number()
-	Parse an integer
-	- Only bas-10 ints (scanf-like)
-	- no floats, no hex,...
+/* parse INTEGER
+	- only base-10 integer
+	- no hex, no float
 */
 int parse_number(FILE *stream, json *out)
 {
 	int value;
-	if (fscanf(stream, "%d", &value) != 1)	// try to read an int
+	if (fscanf(stream, "%d", &value) != 1)  // returns how many %d integers parsed
 		return -1;
+	// store INT to json
 	out->type = INTEGER;
 	out->integer = value;
 	return 1;
 }
 
-/* parse_string()
-	Parsing a string
+/* parse STRING
 	- starts and ends with "
-	- allowed escapes: \" and \\
-	- spaces outside "" are invalid tokens
+	- allowed escape sequences: \\ and \"
+	- space outside "" are invalid
 	Return 1 on success, -1 on failure
 */
 int parse_string(FILE *stream, json *out)
 {
-	if (!accept(stream, '"'))	// must start with a quote
-	{
-		unexpected(stream);
-		return -1;
-	}
+	int len = 0;
+	int cap = 16; // initial buffer size
 
-	size_t cap = 16;	// initial buffer size
-	size_t len = 0;
+	// starts with "
+	if (!expect(stream, '"'))
+		return -1;
+
+	// initial memory reserve for buf
 	char *buf = malloc(cap);
 	if (!buf)
 		return -1;
 
-	for (;;)
+	for(;;)
 	{
+		// consume next char
 		int c = getc(stream);
-		if (c == EOF)		// hit EOF before closing quote
+
+		if (c == EOF)   // hit EOF before closing quote
 		{
 			free(buf);
 			unexpected(stream);
 			return -1;
 		}
-		if (c == '"')		// closing quote found
+
+		if (c == '"')  // closing quote
 			break;
 
-		if (c == '\\')		// c == backslash -> possible escape sequence
+		if (c == '\\') // possible escape sequence
 		{
+			// next char must be \ or "
 			int esc = getc(stream);
-			if (esc == EOF)
+			if (esc != '"' && esc != '\\')
 			{
-				free(buf);
+				putc(esc, stream);
 				unexpected(stream);
-				return -1;
-			}
-			// only \" and \\ is allowed
-			// (next c should be backslash or quotation mark)
-			if (esc != '\\' && esc != '"')
-			{
 				free(buf);
-				printf("unexpected token '%c'\n", esc);
 				return -1;
 			}
-			c = esc;	// replace c with the actual character
+			// replace c = esc
+			c = esc;
 		}
 
-		// Ensure space in buffer
+		// expand buf if needed
 		if (len + 1 >= cap)
 		{
 			cap *= 2;
@@ -226,128 +221,168 @@ int parse_string(FILE *stream, json *out)
 			}
 			buf = tmp;
 		}
-		buf[len++] = c;
+		// put c into buf
+		buf[len] = c;
+		len++;
 	}
 	buf[len] = '\0';
 
+	// store buf into json STRING
 	out->type = STRING;
 	out->string = buf;
 	return 1;
 }
 
-/* parse_map()
-	Parse a map (JSON object)
-	- starts with '{'
-	- contains key:value pairs, separated by commas
-	- keys must be strings
-	- ends with '}'
+/* parse MAP (object)
+	- key:value pairs separated by comma ','
+	- key is a string
+	- starts with '{' and ends with '}'
 	Return 1 on success, -1 on failure
 */
 int parse_map(FILE *stream, json *out)
 {
-	if (!accept(stream, '{'))
-	{
-		unexpected(stream);
-		return -1;
-	}
-
 	out->type = MAP;
 	out->map.data = NULL;
 	out->map.size = 0;
 
-	if (accept(stream, '}'))
-		return 1;				// special case: empty map "{}"
+	// starts with '{'
+	if (!expect(stream, '{'))
+		return -1;
 
-	for (;;)
+	// special case of empty map "{}"
+	if (accept (stream, '}'))
+		return 1;
+
+	for(;;)
 	{
 		json keyjson;
-		if (parse_string(stream, &keyjson) != 1)	// key must be string
+		if (parse_string(stream, &keyjson) != 1)  // key must be a string
 			return -1;
-		if (!expect(stream, ':'))		// Expect ':'
+		if (!expect(stream, ':'))  // key:value separated by ':'
 		{
 			free_json(keyjson);
 			return -1;
 		}
-		json value;
-		if (parse_json(stream, &value) != 1)	// parse value (recursive call)
+		json valjson;
+		if (parse_json(stream, &valjson) != 1)  // value a json object, recursive call
 		{
 			free_json(keyjson);
 			return -1;
 		}
 
-		// Grow the array of pairs
+		// reserve memory for the new pair
 		pair *tmp = realloc(out->map.data, sizeof(pair) * (out->map.size + 1));
 		if (!tmp)
 		{
 			free_json(keyjson);
-			free_json(value);
+			free_json(valjson);
 			return -1;
 		}
-		out->map.data = tmp;
+		out->map.data = tmp;  // old data is on place
 
-		// Store new pair
+		// store new pair
 		out->map.data[out->map.size].key = keyjson.string;
-		out->map.data[out->map.size].value = value;
+		out->map.data[out->map.size].value = valjson;
 		out->map.size++;
 
 		// End of map?
 		if (accept(stream, '}'))
 			break;
 
-		// Otherwise we're expecting a comma
+		// Otherwise we're expecting a comma ','
 		if (!expect(stream, ','))
 			return -1;
 	}
 	return 1;
 }
 
-/* parse_json
-	Main dispatcher: decide what type of JSON value is next
-	- *stream: the input file stream to parse
-	- *out: pointer to the json strucutre to be filled
-	Return 1 on success, -1 on failure
-*/
+// dispatche parsing MAP / STRING / INT
+// Return 1 on success, -1 on failure
 int parse_json(FILE *stream, json *out)
 {
 	int c;
-
 	c = peek(stream);
 
 	if (c == '{')
-		return parse_map(stream, out);			// MAP (JSON object)
+		return (parse_map(stream, out));
 	if (c == '"')
-		return parse_string(stream, out);		// STRING
-	if (isdigit(c) || c == '-' || c == '+')
-		return parse_number(stream, out);		// INTEGER
+		return (parse_string(stream, out));
+	if (isdigit(c) || c == '+' || c == '-')
+		return (parse_number(stream, out));
 
 	unexpected(stream);
 	return -1;
 }
 
-/* argo()
-	Entry point required by the assignment
-	to parse a JSON structure from a stream
-	- *dst: pointer to the json strucutre to be filled
-	- *stream: the input file stream to parse
-	Return 1 on success, -1 on failure
-*/
-int argo(json *dst, FILE *stream)
+int	argo(json *dst, FILE *stream)
 {
 	return parse_json(stream, dst);
 }
 
-int main(int argc, char **argv)
+void	free_json(json j)
+{
+	switch (j.type)
+	{
+		case MAP:
+			for (size_t i = 0; i < j.map.size; i++)
+			{
+				free(j.map.data[i].key);
+				free_json(j.map.data[i].value);
+			}
+			free(j.map.data);
+			break ;
+		case STRING:
+			free(j.string);
+			break ;
+		default:
+			break ;
+	}
+}
+
+void	serialize(json j)
+{
+	switch (j.type)
+	{
+		case INTEGER:
+			printf("%d", j.integer);
+			break ;
+		case STRING:
+			putchar('"');
+			for (int i = 0; j.string[i]; i++)
+			{
+				if (j.string[i] == '\\' || j.string[i] == '"')
+					putchar('\\');
+				putchar(j.string[i]);
+			}
+			putchar('"');
+			break ;
+		case MAP:
+			putchar('{');
+			for (size_t i = 0; i < j.map.size; i++)
+			{
+				if (i != 0)
+					putchar(',');
+				serialize((json){.type = STRING, .string = j.map.data[i].key});
+				putchar(':');
+				serialize(j.map.data[i].value);
+			}
+			putchar('}');
+			break ;
+	}
+}
+
+int	main(int argc, char **argv)
 {
 	if (argc != 2)
 		return 1;
 	char *filename = argv[1];
 	FILE *stream = fopen(filename, "r");
-	json res;
-	if (argo (&res, stream) != 1)
+	json	file;
+	if (argo (&file, stream) != 1)
 	{
-		free_json(res);
+		free_json(file);
 		return 1;
 	}
-	serialize(res);
+	serialize(file);
 	printf("\n");
 }
