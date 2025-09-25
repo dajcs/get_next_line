@@ -5,8 +5,8 @@
 /*                                                    +:+ +:+         +:+     */
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/09/24 15:07:10 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/24 15:51:54 by anemet           ###   ########.fr       */
+/*   Created: 2025/09/25 20:28:15 by anemet            #+#    #+#             */
+/*   Updated: 2025/09/25 21:22:54 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -39,18 +39,22 @@ int main()
     return (0);
 }
 
-int	main() {
-	int	fd = ft_popen("ls", (char *const []){"ls", NULL}, 'r');
-	dup2(fd, 0);
-	fd = ft_popen("grep", (char *const []){"grep", "c", NULL}, 'r');
-	char	*line;
-	while ((line = get_next_line(fd)))
-		printf("%s", line);
+
+int     main() {
+        int     fd = ft_popen("ls", (char *const []){"ls", NULL}, 'r');
+        dup2(fd, 0);
+        fd = ft_popen("grep", (char *const []){"grep", "c", NULL}, 'r');
+        char    *line;
+        while ((line = get_next_line(fd)))
+                printf("%s", line);
 }
+
 
 Hints:
 Do not leak file descriptors!
 This exercise is inspired by the libc's popen().
+
+Please type 'test' to test code, 'next' for next or 'exit' for exit.
 
 */
 
@@ -60,10 +64,12 @@ This exercise is inspired by the libc's popen().
 #include <stdlib.h>
 #include <stdio.h>
 
+
+
 int ft_popen(const char *file, char *const argv[], char type)
 {
-	int p[2]; // pipe fd-s
 	pid_t pid;
+	int p[2];
 
 	if (!file || !argv || (type != 'r' && type != 'w'))
 		return -1;
@@ -78,62 +84,79 @@ int ft_popen(const char *file, char *const argv[], char type)
 		close(p[1]);
 		return -1;
 	}
-	/* child process */
+
+	/* Child process */
 	if (pid == 0)
 	{
-		// type = 'r': we want to read from child process
-		//				pipe write = STDOUT
+		// type == 'r': we're going to read from the process in parent
+		//				child process writes to pipe
 		if (type == 'r')
 		{
+			// pipe write = STDOUT
 			close(p[0]); // close pipe read
 			if (dup2(p[1], STDOUT_FILENO) == -1)
 				return -1;
-			close(p[1]); // STDOUT is writing to the pipe
+			close(p[1]);
 		}
-
-		// type = 'w': we want to write to the child process
-		//				pipe read = STDIN
+		// type == 'w': we're going to write to the process in parent
+		//				child process reads from the pipe
 		if (type == 'w')
 		{
+			// pipe read = STDIN
 			close(p[1]); // close pipe write
 			if (dup2(p[0], STDIN_FILENO) == -1)
 				return -1;
-			close(p[0]); // pipe read is coming through STDIN
+			close(p[0]);
 		}
+
+		// execute process
 		execvp(file, argv);
-		exit(0); // should not be reached
+		exit(1); // reached only on execvp error
 	}
-	/* parent process */
+
+	/* Parent process */
 	else
 	{
-		// type = 'r': we want to read from child process
-		//				=> return pipe read end
-		close(p[1]);  // child is writing to the pipe
-		return (p[0]);
-
-		// type = 'w': we want to write to the child process
-		//				=> return pipe write end
-		close(p[0]);  // child is reading from the pipe
-		return (p[1]);
+		// type == 'r': we're returning the pipe read end
+		if (type == 'r')
+		{
+			close(p[1]);
+			return p[0];
+		}
+		// type == 'w': we're returning the pipe write end
+		if (type == 'w')
+		{
+			close(p[0]);
+			return p[1];
+		}
 	}
+	return 1; // shouldn't be reached
 }
 
-int	main()
+/*
+int     main()
 {
-	int	fd = ft_popen("ls", (char *const []){"ls", NULL}, 'r');
+	int     fd = ft_popen("ls", (char *const []){"ls", NULL}, 'r');
 	dup2(fd, 0);
 	fd = ft_popen("grep", (char *const []){"grep", "c", NULL}, 'r');
 
+	// man readline
+
+	char *line = NULL;
+	size_t len = 0;
+	ssize_t nread;
 	FILE *stream = fdopen(fd, "r");
+	if (stream == NULL)
+	{
+		perror("fdopen");
+		exit(EXIT_FAILURE);
+	}
 
-	char	*line = NULL;  // must be NULL because getline is using realloc()
-	size_t len;
-	ssize_t read;
-
-	while ((read = getline(&line, &len, stream)) != -1)
+	while ((nread = getline(&line, &len, stream)) != -1)
 		printf("%s", line);
 
 	free(line);
-	fclose(stream); // this closes fd as well
+	fclose(stream);
+	exit(EXIT_SUCCESS);
 }
-
+ */
