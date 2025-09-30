@@ -6,7 +6,7 @@
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/23 15:49:38 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/24 13:38:28 by anemet           ###   ########.fr       */
+/*   Updated: 2025/09/30 19:38:04 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -102,6 +102,8 @@ int picoshell(char **cmds[])
 				close(pipefd[1]);
 			}
 			// execute process
+			if (!cmds[i][0])  // empty command, nothing to do
+				exit(0);
 			execvp(cmds[i][0], cmds[i]);
 			exit(0); // this should not be reached
 		}
@@ -126,12 +128,34 @@ int picoshell(char **cmds[])
 	// wait for all processes to finish
 	// wait is waiting for a child process to finish and stores result in status
 	// when there are no more child processes then returns -1 (error: no child process)
-	while (wait(&status) != -1)
+	// while (wait(&status) != -1)
+	// {
+	// 	if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+	// 		exit_code = 1;
+	// }
+	// return exit_code;
+
+	/*
+
+	problem with the code above:
+
+	- wait() in loop until no children remain, +1 wait() returns -1
+	- check exit codes of all processes
+	- a single failed process makes the whole pipeline fail (returns exit_code = 1)
+
+	the main() program at the exam it will display the error message using `perror`
+	- perror describes the last error encoutered - which it will be "no child process"
+	because of the last wait()== -1 encountered
+	*/
+
+	for(int j = 0; j < i; j++)
 	{
+		wait(&status);
 		if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
 			exit_code = 1;
 	}
 	return exit_code;
+	// return WEXITSTATUS(status);  // alternative return, if the above fails at the exam
 }
 
 int main()
