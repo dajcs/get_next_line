@@ -6,7 +6,7 @@
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/09/23 15:49:38 by anemet            #+#    #+#             */
-/*   Updated: 2025/09/30 19:38:04 by anemet           ###   ########.fr       */
+/*   Updated: 2025/09/30 19:41:53 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -158,12 +158,12 @@ int picoshell(char **cmds[])
 	// return WEXITSTATUS(status);  // alternative return, if the above fails at the exam
 }
 
-int main()
-{
+// int main()
+// {
 
-	char *cmd1[] = {"ls", NULL};
-	char *cmd2[] = {"grep", "c", NULL};
-	char **cmds[] = {cmd1, cmd2, NULL};
+// 	char *cmd1[] = {"ls", NULL};
+// 	char *cmd2[] = {"grep", "c", NULL};
+// 	char **cmds[] = {cmd1, cmd2, NULL};
 
 	// Test 1
     // char *cmd1[] = {"echo", "Hello World", NULL};
@@ -185,7 +185,7 @@ int main()
 
 	// int exit_code = picoshell(cmds);
 	// printf("\nexit_code: %d\n\n", exit_code);
-}
+// }
 /*
 static int count_cmds(int argc, char **argv)
 {

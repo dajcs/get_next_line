@@ -3,6 +3,9 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+
+int picoshell(char **cmds[]);
 
 static int count_cmds(int argc, char **argv)
 {
