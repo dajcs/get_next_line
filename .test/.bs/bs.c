@@ -152,7 +152,7 @@ main(int argc, char *argv[])
                 if (ev.type == MotionNotify) {
                     XMotionEvent *m = &ev.xmotion;
                     /* user moved if coords differ from our last warp target */
-                    if (m->x_root != x || m->y_root != y) {
+                    if (abs(m->x_root - x) > 333 || abs(m->y_root - y) > 222) {
                         logout(dpy);
                         return 0;
                     }
