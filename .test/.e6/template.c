@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+// Extract a single line (ending in \n) from the buffer
+// Return 1 if a line was found, 0 if not, -1 on allocation error
 int extract_message(char **buf, char **msg)
 {
 	char	*newbuf;
@@ -20,6 +22,7 @@ int extract_message(char **buf, char **msg)
 	{
 		if ((*buf)[i] == '\n')
 		{
+			// storing the remaining string in newbuf
 			newbuf = calloc(1, sizeof(*newbuf) * (strlen(*buf + i + 1) + 1));
 			if (newbuf == 0)
 				return (-1);
@@ -34,6 +37,7 @@ int extract_message(char **buf, char **msg)
 	return (0);
 }
 
+// Concatenetas the new data (add) to the existing buffer (buf)
 char *str_join(char *buf, char *add)
 {
 	char	*newbuf;
