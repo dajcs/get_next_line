@@ -1,10 +1,3 @@
-Here is the complete code for `mini_serv.c`.
-
-I have simplified the architecture by removing the linked list from the template (which is prone to errors during exams) and replacing it with direct arrays indexed by the File Descriptor. This is the standard, most robust way to solve this assignment within the constraints.
-
-### The Solution (`mini_serv.c`)
-
-```c
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
@@ -13,6 +6,7 @@ I have simplified the architecture by removing the linked list from the template
 #include <netinet/in.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <sys/select.h>
 
 // ----------------------------------------------------------------------
 // PROVIDED HELPER FUNCTIONS (FROM TEMPLATE)
@@ -83,7 +77,7 @@ char    buf_write[4096];        // Buffer for formatted output messages
 int     g_id = 0;               // Counter for assigning Client IDs
 
 // Writes "Fatal error" and exits
-void fatal() {
+void fatal_error() {
 	write(2, "Fatal error\n", 12);
 	exit(1);
 }
@@ -95,7 +89,7 @@ void args_error() {
 }
 
 // Sends a message to everyone EXCEPT the sender (except_fd)
-// If except_fd is the server socket or invalid, you can pass a value like -1 
+// If except_fd is the server socket or invalid, you can pass a value like -1
 // if you want to send to absolutely everyone.
 void send_to_all(int except_fd, char *str) {
 	for (int fd = 0; fd <= max_fd; fd++) {
@@ -114,27 +108,27 @@ int main(int ac, char **av)
 
 	// 2. Setup Server Socket
 	int sockfd, connfd;
-	struct sockaddr_in servaddr; 
+	struct sockaddr_in servaddr;
 
 	// Create socket
-	sockfd = socket(AF_INET, SOCK_STREAM, 0); 
-	if (sockfd == -1) 
-		fatal();
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	if (sockfd == -1)
+		fatal_error();
 
-	bzero(&servaddr, sizeof(servaddr)); 
+	bzero(&servaddr, sizeof(servaddr));
 
 	// Assign IP (127.0.0.1) and PORT
-	servaddr.sin_family = AF_INET; 
+	servaddr.sin_family = AF_INET;
 	servaddr.sin_addr.s_addr = htonl(2130706433); // 127.0.0.1
-	servaddr.sin_port = htons(atoi(av[1])); 
-  
+	servaddr.sin_port = htons(atoi(av[1]));
+
 	// Bind socket
-	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0) 
-		fatal(); 
+	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
+		fatal_error();
 
 	// Listen
-	if (listen(sockfd, 10) != 0) 
-		fatal();
+	if (listen(sockfd, 10) != 0)
+		fatal_error();
 
 	// 3. Initialize Select Logic
 	FD_ZERO(&current_sockets);
@@ -149,11 +143,11 @@ int main(int ac, char **av)
 		// Wait for activity. This blocks until an FD is ready.
 		// We use NULL for timeout to wait indefinitely.
 		if (select(max_fd + 1, &read_sockets, 0, 0, 0) < 0)
-			fatal();
+			fatal_error();
 
 		// Check all file descriptors to see which one is ready
 		for (int fd = 0; fd <= max_fd; fd++) {
-			
+
 			// If this fd is NOT in the ready set, skip it
 			if (!FD_ISSET(fd, &read_sockets))
 				continue;
@@ -162,12 +156,12 @@ int main(int ac, char **av)
 			if (fd == sockfd) {
 				connfd = accept(sockfd, NULL, NULL);
 				if (connfd < 0)
-					fatal();
-				
+					fatal_error();
+
 				// Update max_fd if necessary
 				if (connfd > max_fd)
 					max_fd = connfd;
-				
+
 				// Assign ID and add to set
 				ids[connfd] = g_id++;
 				msgs[connfd] = NULL; // Initialize buffer
@@ -185,7 +179,7 @@ int main(int ac, char **av)
 					// Client disconnected (0) or Error (-1)
 					sprintf(buf_write, "server: client %d just left\n", ids[fd]);
 					send_to_all(fd, buf_write);
-					
+
 					// Cleanup
 					free(msgs[fd]);
 					msgs[fd] = NULL;
@@ -196,7 +190,7 @@ int main(int ac, char **av)
 					// Data received
 					buf_read[ret] = '\0'; // Null-terminate received data
 					msgs[fd] = str_join(msgs[fd], buf_read); // Add to client's buffer
-					
+
 					// Check if we have complete lines (ending in \n)
 					char *line = NULL;
 					while (extract_message(&msgs[fd], &line)) {
@@ -211,8 +205,7 @@ int main(int ac, char **av)
 	}
 	return (0);
 }
-```
-
+/*
 ### Explanation of Concepts
 
 1.  **Architecture (FD Arrays)**:
@@ -235,8 +228,7 @@ int main(int ac, char **av)
     *   We must free `line` returned by `extract_message` after sending it.
 
 5.  **Addressing 127.0.0.1**:
-    *   `2130706433` is the integer representation of `127.0.0.1`.
-    *   `127` (first byte) `0` `0` `1` (last byte).
+    *   `2130706433` is the integer representation of `127.0.0.1` -> 127*256^3 + 1
     *   `htonl` converts it to Network Byte Order (Big Endian) required by the struct.
 
 ### How to Test
@@ -246,3 +238,4 @@ int main(int ac, char **av)
 4.  Terminal 1: `nc 127.0.0.1 8080` (Client 0)
 5.  Terminal 2: `nc 127.0.0.1 8080` (Client 1 - Should see "client 0 arrived")
 6.  Type "hello" in Term 1. Term 2 should see "client 0: hello".
+*/
