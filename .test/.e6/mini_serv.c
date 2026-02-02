@@ -1,20 +1,31 @@
-#include <errno.h>
-#include <string.h>
 #include <unistd.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <sys/select.h>  // fd_set
+#include <netinet/ip.h>
+#include <sys/select.h>	// fd_set
 
 
-/*  >>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-	Start of given code in main.c
-*/
+// Global state for the chat server
+int		count = 0;		// count = next client ID
+int		max_fd = 0;		// max_fd = highest fd for select()
+int		ids[65536];		// maps fd -> client ID (for display purposes)
+char	*msgs[65536];	// maps fd -> incomplete message buffer (accumulates until '\n')
 
-// Extract a single line (ending in \n) from the buffer
-// Return 1 if a line was found, 0 if not, -1 on allocation error
+fd_set	rfds;	// rfds = read fd set (who has data to read)
+fd_set	wfds;	// wfds = write fd set (who can receive data)
+fd_set	afds;	// afds = active fd set (all connected clients + server socket)
+
+char	buf_read[1001];		// buffer for recv
+char	buf_write[42];		// buffer to send client ID join/leave/prefix
+
+
+// START COPY-PASTE FROM GIVEN MAIN
+
+// Extract a complete message (ending with '\n') from the buffer
+// - if a newline is found, *msg is set to the message(including '\n')
+//   *buf is updated to contain the remaining data after the extracted message
+// - Return 1 if a line was found, 0 if not, -1 on allocation error
 int extract_message(char **buf, char **msg)
 {
 	char	*newbuf;
@@ -28,23 +39,23 @@ int extract_message(char **buf, char **msg)
 	{
 		if ((*buf)[i] == '\n')
 		{
-			// storing the remaining string in newbuf
+			// Allocate new buffer for remaining data after the newline
 			// *buf + i -> pointing to '\n'; +1 next char after '\n'
 			newbuf = calloc(1, sizeof(*newbuf) * (strlen(*buf + i + 1) + 1));
 			if (newbuf == 0)
 				return (-1);
-			strcpy(newbuf, *buf + i + 1);
-			*msg = *buf;
-			(*msg)[i + 1] = 0;
-			*buf = newbuf;
+			strcpy(newbuf, *buf + i + 1);	// copy remainder to newbuf
+			*msg = *buf;					// message is the original buffer
+			(*msg)[i + 1] = 0;				// terminate message after newline
+			*buf = newbuf;					// update buf to point to remainder
 			return (1);
 		}
 		i++;
 	}
-	return (0);
+	return (0);		// No complete message yet (no newline found)
 }
 
-// Concatenates the new data (add) to the existing buffer (buf)
+// Concatenates the new data (`add`) to the existing buffer (`buf`)
 // free orig `buf`, return `newbuf`
 char *str_join(char *buf, char *add)
 {
@@ -61,30 +72,15 @@ char *str_join(char *buf, char *add)
 	newbuf[0] = 0;
 	if (buf != 0)
 		strcat(newbuf, buf);
-	free(buf);
+	free(buf);				// free old buffer (ownership transferred)
 	strcat(newbuf, add);
 	return (newbuf);
 }
 
-/*
-	End of given code in main.c
-	<<<<<<<<<<<<<<<<<<<<<<<<<<<
-*/
+
+// END COPY-PASTE
 
 
-// -------------------------
-// Server Implementation
-// -------------------------
-
-// Global variables for managing state
-int		max_fd = 0;			// The highest file descriptor currently open
-int		ids[65535];			// Array [FD] -> Client ID
-char	*msgs[65535];		// Array [FD] -> Buffered string (accumulated data)
-fd_set	current_sockets;	// Master set of all open sockets
-fd_set	read_sockets;		// Temp set passed to select()
-char	buf_read[4096];		// Buffer for raw input from recv
-char	buf_write[4096];	// Buffer for formatted output messages
-int		g_id = 0;			// Counter for assigning Client IDs
 
 
 // Write "Fatal error" and exit
@@ -94,22 +90,86 @@ void fatal_error()
 	exit(1);
 }
 
-/*
-	send_to_all() - send message to everyone EXCEPT the sender (`except_fd`)
 
-	if `except_fd` is the server socket or invalid,
-	we can pass e.g. `-1` if we want to send to absolutely everyone
+/*
+	notify_other()
+	- Broadcast a message to all connected clients EXCEPT the author
+	- Uses wfds to check which clients are ready to receive data
 */
-void send_to_all(int except_fd, char *str)
+void	notify_other(int author, char *str)
 {
 	for (int fd = 0; fd <= max_fd; fd++)
 	{
-		// Check if fd is an active socket and isn't the sender
-		if (FD_ISSET(fd, &current_sockets) && fd != except_fd)
-		{
-			write(fd, str, strlen(str));
-		}
+		// send only to writable fds and not the message author
+		if (FD_ISSET(fd, &wfds) && fd != author)
+			send(fd, str, strlen(str), 0);
 	}
+}
+
+
+/*
+	register_client()
+	- Called when a new client connects via accept()
+	- Assigns a unique ID, initializes message buffer and notifies others
+*/
+void	register_client(int fd)
+{
+	max_fd = fd > max_fd ? fd : max_fd;	// update max_fd for select()
+	ids[fd] = count++;					// assign next available client ID
+	msgs[fd] = NULL;					// Init empty message buffer
+	FD_SET(fd, &afds);					// Add to active fd set
+	sprintf(buf_write, "server: client %d just arrived\n", ids[fd]);
+	notify_other(fd, buf_write);		// Announce arrival to other clients
+}
+
+
+/*
+	remove_client()
+	- Called when a client disconnects (recv returns 0 or error -1)
+	- Notifies others, cleans up resources, and removes from active set
+*/
+void	remove_client(int fd)
+{
+	sprintf(buf_write, "server: client %d just left\n", ids[fd]);
+	notify_other(fd, buf_write);	// Announce departure to other clients
+	FD_CLR(fd, &afds);				// Remove from active fd set
+	free(msgs[fd]);					// Free accumulated message buffer
+	close(fd);						// close client socket fd
+}
+
+
+/*
+	send_msg()
+	- Process and broadcast all complete messages from a client's buffer
+	- A complete message ends with '\n'. Multiple messages may be queued
+*/
+void	send_msg(int fd)
+{
+	char *msg;
+
+	// Extract and send each complete message (loop handles multiple '\n')
+	while (extract_message(&(msgs[fd]), &msg))
+	{
+		sprintf(buf_write, "client %d: ", ids[fd]);	// Format sender prefix
+		notify_other(fd, buf_write);				// Send prefix to others
+		notify_other(fd, msg);						// Send actual message
+		free(msg);									// Free sent message
+	}
+}
+
+
+/*
+	create_socket()
+	- Create the server's listening socket (TCP/IPv4)
+	- Returns the socket fd, which is also stored in max_fd
+*/
+int	create_socket()
+{
+	max_fd = socket(AF_INET, SOCK_STREAM, 0);	// TCP socket
+	if (max_fd < 0)
+		fatal_error();
+	FD_SET(max_fd, &afds);	// Add server socket to active set
+	return max_fd;
 }
 
 
@@ -121,16 +181,10 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	// 2. TODO: Create socket, bind, and listen
+	FD_ZERO(&afds);
+	int sockfd = create_socket();
 
-	int sockfd, connfd;
-
-	// Create socket (AF_INET -> Address Family: Internet)
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (sockfd == -1)
-		fatal_error();
-
-//>>>>>>>>>>> Start copy/paste from main
+//>>>>>>>>>>> START COPY-PASTE FROM MAIN
 
 	struct sockaddr_in servaddr;  // man 7 ip
 	bzero(&servaddr, sizeof(servaddr)); // reset to 0
@@ -142,97 +196,59 @@ int main(int argc, char **argv)
 	servaddr.sin_port = htons(atoi(argv[1]));
 
 	// Bind socket
-	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
+	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))))
 		fatal_error();
 
-	// Listen
-	if (listen(sockfd, SOMAXCONN) != 0)   // the main uses 10, SOMAXCONN: 128..4096
+	// Listen: Mark socket as passive (accepting connections)
+	if (listen(sockfd, SOMAXCONN))   // the main uses 10, SOMAXCONN: 128..4096
 		fatal_error();
 
-//<<<<<<<<<<<<<<<<< End copy/paste from main
+//<<<<<<<<<<<<<<<<< END COPY-PASTE from main
 
-	// TODO: Implement select() for non-blocking I/O
-	//			Accept connections and Handle Clients
 
-	// 3. Initialize Select Logic
-	FD_ZERO(&current_sockets);
-	FD_SET(sockfd, &current_sockets); // Add server socket FD to the set
-	max_fd = sockfd;
-
-	// 4. Main Select Loop
+	// 4. Main event loop - runs forever, processing client events
 	while (1)
 	{
-		// select modifies the fd_set, so we must copy it every loop
-		read_sockets = current_sockets;
+		// Reset read/write sets from active set before each select()
+		rfds = wfds = afds;
 
-		// Wait for activity. This blocks until and FD is ready
-		// We use NULL for timeout to wait indefinitely
-		// select(max_fd+1, *read_fds, *write_fds, *except_fds, *timeout)
-		if (select(max_fd + 1, &read_sockets, 0, 0, 0) < 0)
+		// Block until at least one fd has activity (readable or writable)
+		// except fds: NULL, timeout: NULL
+		if (select(max_fd + 1, &rfds, &wfds, NULL, NULL) < 0)
 			fatal_error();
 
-		// check all file descriptors to see which one is ready
+		// Check each fd to see if it has data to read
 		for (int fd = 0; fd <= max_fd; fd++)
 		{
-			// if this fd is NOT in the ready set, skip it
-			if (!FD_ISSET(fd, &read_sockets))
+			if (!FD_ISSET(fd, &rfds))	// Skip if no data to read
 				continue;
 
-			// CASE A: The Server Socket is ready -> New Connection
 			if (fd == sockfd)
 			{
-				connfd = accept(sockfd, NULL, NULL);
-				if (connfd < 0)
-					fatal_error();
-
-				// Update max_fd
-				if (connfd > max_fd)
-					max_fd = connfd;
-
-				// Assign ID and add to set
-				ids[connfd] = g_id++;
-				msgs[connfd] = NULL; // init buffer
-				FD_SET(connfd, &current_sockets);
-
-				// Notify everyone else
-				sprintf(buf_write, "server: client %d just arrived\n", ids[connfd]);
-				send_to_all(connfd, buf_write);
+				// Event on sockfd -> new client trying to connect
+				socklen_t addr_len = sizeof(servaddr);
+				int client_fd = accept(sockfd, (struct sockaddr *)&servaddr, &addr_len);
+				if (client_fd >= 0)
+				{
+					register_client(client_fd);
+					break;	// Restart loop (afds changed, need fresh select)
+				}
 			}
-
-			// CASE B: Client Socket is ready -> Read Data
 			else
 			{
-				int ret = recv(fd, buf_read, 1000, 0);
-
-				// if Client disconnected (0) or Error (-1)
-				if (ret <= 0)
+				// Client socket is readable = client sent data or disconnected
+				int read_bytes = recv(fd, buf_read, 1000, 0);
+				if (read_bytes <= 0)
 				{
-					sprintf(buf_write, "server: client %d just left\n", ids[fd]);
-					send_to_all(fd, buf_write);
-
-					// Cleanup
-					free(msgs[fd]);
-					msgs[fd] = NULL;
+					// 0 = clean disconnect, <0 = error -> remove client
+					remove_client(fd);
+					break; // Restart loop (afds changed, need fresh select)
 				}
-				// else: Data received
-				else
-				{
-					buf_read[ret] = '\0'; // Null-terminate received data
-					msgs[fd] = str_join(msgs[fd], buf_read); // Add to client's buffer
-
-					// Check if we have complete lines (ending in \n)
-					char *line = NULL;
-					while (extract_message(&msgs[fd], &line))
-					{
-						// Format and broadcast the message
-						sprintf(buf_write, "client %d: %s", ids[fd], line);
-						send_to_all(fd, buf_write);
-						free(line); // extract_message mallocs `line`, we must free
-					}
-				}
+				// Accumulate received data and process any complete messages
+				buf_read[read_bytes] = '\0';
+				msgs[fd] = str_join(msgs[fd], buf_read);
+				send_msg(fd);	// Broadcast any complete messages
 			}
-
-
 		}
 	}
 
