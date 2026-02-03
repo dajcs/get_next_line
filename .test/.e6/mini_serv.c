@@ -7,7 +7,7 @@
 
 
 // Global state for the chat server
-int		count = 0;		// count = next client ID
+int		idcount = 0;		// idcount = next client ID
 int		max_fd = 0;		// max_fd = highest fd for select()
 int		ids[65536];		// maps fd -> client ID (for display purposes)
 char	*msgs[65536];	// maps fd -> incomplete message buffer (accumulates until '\n')
@@ -96,45 +96,14 @@ void fatal_error()
 	- Broadcast a message to all connected clients EXCEPT the author
 	- Uses wfds to check which clients are ready to receive data
 */
-void	notify_other(int author, char *str)
+void	notify_other(int author, char *msg)
 {
 	for (int fd = 0; fd <= max_fd; fd++)
 	{
 		// send only to writable fds and not the message author
 		if (FD_ISSET(fd, &wfds) && fd != author)
-			send(fd, str, strlen(str), 0);
+			send(fd, msg, strlen(msg), 0);
 	}
-}
-
-
-/*
-	register_client()
-	- Called when a new client connects via accept()
-	- Assigns a unique ID, initializes message buffer and notifies others
-*/
-void	register_client(int fd)
-{
-	max_fd = fd > max_fd ? fd : max_fd;	// update max_fd for select()
-	ids[fd] = count++;					// assign next available client ID
-	msgs[fd] = NULL;					// Init empty message buffer
-	FD_SET(fd, &afds);					// Add to active fd set
-	sprintf(buf_write, "server: client %d just arrived\n", ids[fd]);
-	notify_other(fd, buf_write);		// Announce arrival to other clients
-}
-
-
-/*
-	remove_client()
-	- Called when a client disconnects (recv returns 0 or error -1)
-	- Notifies others, cleans up resources, and removes from active set
-*/
-void	remove_client(int fd)
-{
-	sprintf(buf_write, "server: client %d just left\n", ids[fd]);
-	notify_other(fd, buf_write);	// Announce departure to other clients
-	FD_CLR(fd, &afds);				// Remove from active fd set
-	free(msgs[fd]);					// Free accumulated message buffer
-	close(fd);						// close client socket fd
 }
 
 
@@ -155,6 +124,37 @@ void	send_msg(int fd)
 		notify_other(fd, msg);						// Send actual message
 		free(msg);									// Free sent message
 	}
+}
+
+
+/*
+	remove_client()
+	- Called when a client disconnects (recv returns 0 or error -1)
+	- Notifies others, cleans up resources, and removes from active set
+*/
+void	remove_client(int fd)
+{
+	sprintf(buf_write, "server: client %d just left\n", ids[fd]);
+	notify_other(fd, buf_write);	// Announce departure to other clients
+	FD_CLR(fd, &afds);				// Remove from active fd set
+	free(msgs[fd]);					// Free accumulated message buffer
+	close(fd);						// close client socket fd
+}
+
+
+/*
+	register_client()
+	- Called when a new client connects via accept()
+	- Assigns a unique ID, initializes message buffer and notifies others
+*/
+void	register_client(int fd)
+{
+	max_fd = fd > max_fd ? fd : max_fd;	// update max_fd for select()
+	ids[fd] = idcount++;				// assign next available client ID
+	msgs[fd] = NULL;					// Init empty message buffer
+	FD_SET(fd, &afds);					// Add to active fd set
+	sprintf(buf_write, "server: client %d just arrived\n", ids[fd]);
+	notify_other(fd, buf_write);		// Announce arrival to other clients
 }
 
 
