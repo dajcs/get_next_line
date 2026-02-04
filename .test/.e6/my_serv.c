@@ -1,23 +1,39 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   my_serv.c                                          :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2026/02/04 13:06:47 by anemet            #+#    #+#             */
+/*   Updated: 2026/02/04 16:50:20 by anemet           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/select.h>
 
-// Global variables
-int idcount = 0;			// track id
-int max_fd = 0;				// highest fd for select
-fd_set afds, rfds, wfds;	// active/read/write fd set
-int ids[65536];				// [fd] -> id
-char *msgs[65536];			// [fd] -> incomplete message buffer (accumulates till '\n')
-char buf_read[1001];		// buffer for recv
-char buf_write[42];			// buffer to send client ID join/leave/prefix
 
-// These functions are provided in the exam
+// Globals
+int max_fd = 0;		// max fd for select
+int id_count = 0;	// id counter for next client
+
+fd_set afds, rfds, wfds;	// active set, read set, write set (man select)
+
+int	ids[65536];		// [fd] -> client id
+char* msgs[65536];	// [fd] -> buffers to accumulate messages
+
+char buf_read[1001];	// read buffer for recv
+char buf_write[1024];		// write buffer for send
+
+
 int extract_message(char **buf, char **msg)
 {
 	char	*newbuf;
@@ -65,27 +81,27 @@ char *str_join(char *buf, char *add)
 	return (newbuf);
 }
 
-// Error handling function
-void fatal_error() {
+
+void fatal_error()
+{
 	write(2, "Fatal error\n", 12);
 	exit(1);
 }
 
-
 int create_socket()
 {
-	max_fd = socket(AF_INET, SOCK_STREAM, 0);
+	max_fd = socket(AF_INET, SOCK_STREAM, 0);   // man 7 ip
 	if (max_fd < 0)
 		fatal_error();
 	FD_SET(max_fd, &afds);
 	return max_fd;
 }
 
-void notify_other(int author, char* msg)
+void notify_other(int author, char *msg)
 {
-	// send message to writable partners
 	for (int fd = 0; fd <= max_fd; fd++)
 	{
+		// send message to writable partner except author
 		if (FD_ISSET(fd, &wfds) && fd != author)
 			send(fd, msg, strlen(msg), 0);
 	}
@@ -93,11 +109,11 @@ void notify_other(int author, char* msg)
 
 void register_client(int fd)
 {
-	max_fd = fd > max_fd ? fd : max_fd;  // update max_fd for select
-	ids[fd] = idcount++;
-	msgs[fd] = NULL;
+	max_fd = (fd > max_fd) ? fd : max_fd; // update max_fd for select
+	ids[fd] = id_count++;				// update id_count
+	msgs[fd] = NULL;					// init msgs pointer
 	FD_SET(fd, &afds);
-	sprintf(buf_write, "server: client %d just arrived\n", ids[fd]);
+	sprintf(buf_write, "server: client %d just arrived\n", fd);
 	notify_other(fd, buf_write);
 }
 
@@ -108,93 +124,116 @@ void remove_client(int fd)
 	FD_CLR(fd, &afds);
 	free(msgs[fd]);
 	close(fd);
+	max_fd = (fd == max_fd) ? max_fd - 1 : max_fd;
 }
 
 void send_msgs(int fd)
 {
 	char *msg;
-	sprintf(buf_write, "client %d: ", ids[fd]);
-	notify_other(fd, buf_write);
 
-	while (extract_message(&(msgs[fd]), &msg))
+	while (extract_message(&msgs[fd], &msg))   // extract while there is new line
 	{
-		notify_other(fd, msg);
-		free(msg);
+		sprintf(buf_write, "client %d: %s", ids[fd], msg);	// format message
+		notify_other(fd, buf_write);						// broadcast message
+		free(msg);						// free msg malloc'ed by extract_message()
 	}
 }
 
-int main(int argc, char **argv) {
-	// Check arguments
-	if (argc != 2) {
+int main(int argc, char *argv[])
+{
+	if (argc < 2)
+	{
 		write(2, "Wrong number of arguments\n", 26);
 		exit(1);
 	}
 
-	// Socket setup
-	FD_ZERO(&afds);
+	FD_ZERO(&afds);  // reset active fd set
+	// create socket, add fd to afds, set max_fd
 	int sockfd = create_socket();
 
-	// Create server, bind, listen
-	struct sockaddr_in servaddr;  // man 7 ip
-	bzero(&servaddr, sizeof(servaddr));
+	// man 7 ip
+	// struct sockaddr_in {
+	// 	sa_family_t    sin_family; /* address family: AF_INET */
+	// 	in_port_t      sin_port;   /* port in network byte order */
+	// 	struct in_addr sin_addr;   /* internet address */
+	// };
 
-	// assign family AF_INET, ip, port
+	// /* Internet address. */
+	// struct in_addr {
+	// 	uint32_t       s_addr;     /* address in network byte order */
+	// };
+
+	struct sockaddr_in servaddr;
+	bzero(&servaddr, sizeof(servaddr)); // reset struct to be on the safe side
+
+	// assign IP, PORT
 	servaddr.sin_family = AF_INET;
-	servaddr.sin_addr.s_addr = htonl(2130706433); // 127.0.0.1 -> 127*256^3 + 1
-	servaddr.sin_port = htons(atoi(argv[1]));
+	// htonl: host to network long (4 bytes)
+	servaddr.sin_addr.s_addr = htonl(2130706433); //127.0.0.1 -> 127*256^3 + 1
+	servaddr.sin_port = htons(atoi(argv[1]));	// htons: host to network short (2 bytes)
 
-	// bind
-	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))))
+	// Bind socket to given IP and verification (man bind)
+	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
 		fatal_error();
 
-	// listen
-	if (listen(sockfd, SOMAXCONN)) // 10 -> SOMAXCONN
+	// mark sockfd passive -> will be used to accept new connections with `accept()`
+	if (listen(sockfd, SOMAXCONN) != 0)  // SOMAXCONN -> max size of Listen Backlog
 		fatal_error();
 
 
-	// Implement select() for non-blocking I/O
-	while(1)
+	while (1)
 	{
-		// reset sets
+		// reset fd sets
 		rfds = wfds = afds;
 
-		// select - waits for fd activity
-		if (select(max_fd + 1, &rfds, &wfds, 0, 0) < 0)
+		// man select() - wait for fd activity
+		// int select(int nfds, *rfds, *wfds, *efds, *timeout);
+		// efds = NULL: we don't use exception set
+		// timeout = NULL: we're waiting indefinitely until something happens
+		if (select(max_fd+1, &rfds, &wfds, 0, 0) < 0)
 			fatal_error();
 
-		// check each fd if has data to read
+		// scan through all fd-s if there is data to read
 		for (int fd = 0; fd <= max_fd; fd++)
 		{
-			if (!FD_ISSET(fd, &rfds))  // skip if no event
+			if (!FD_ISSET(fd, &rfds))  // if no activity -> continue with next fd
 				continue;
 
 			if (fd == sockfd)
 			{
-				// Event on sockfd -> new client trying to connect
-				socklen_t addr_len = sizeof(servaddr);
-				int client_fd = accept(sockfd, (struct sockaddr *)&servaddr, &addr_len);
-				if (client_fd >= 0)
+				// socket activity: new client trying to connect
+				// man accept
+				// int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+				socklen_t addrlen = sizeof(servaddr);
+				int client_fd = accept(sockfd, (struct sockaddr *)&servaddr, &addrlen);
+				if (client_fd > 0)
 				{
 					register_client(client_fd);
-					break; // restart loop, afds changed, we need fresh select
+					break;	// restart loop, afds changed, fresh select is needed
 				}
 			}
 			else
 			{
-				// read client
+				// existing client, read data (man recv)
 				int read_bytes = recv(fd, buf_read, 1000, 0);
-				if (read_bytes <= 0)  // disconnect
+
+				if (read_bytes <= 0)		// disconnect ?
 				{
 					remove_client(fd);
 					break; // afds changed -> new select
 				}
-				// terminate received data with '\0' and append
-				buf_read[read_bytes] = '\0';
-				msgs[fd] = str_join(msgs[fd], buf_read);
-				send_msgs(fd);  // broadcast completed lines
+				else
+				{
+					// existing client, new data received
+					buf_read[read_bytes] = '\0'; // NULL terminate new data
+					msgs[fd] = str_join(msgs[fd], buf_read); // append new data
+					send_msgs(fd); // broadcast completed lines
+				}
 			}
+
 		}
+
 	}
 
-	return 0;
 }
+
