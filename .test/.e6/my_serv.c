@@ -6,7 +6,7 @@
 /*   By: anemet <anemet@student.42luxembourg.lu>    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/02/04 13:06:47 by anemet            #+#    #+#             */
-/*   Updated: 2026/02/04 16:50:20 by anemet           ###   ########.fr       */
+/*   Updated: 2026/02/05 00:46:24 by anemet           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -124,7 +124,6 @@ void remove_client(int fd)
 	FD_CLR(fd, &afds);
 	free(msgs[fd]);
 	close(fd);
-	max_fd = (fd == max_fd) ? max_fd - 1 : max_fd;
 }
 
 void send_msgs(int fd)
