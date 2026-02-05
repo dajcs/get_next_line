@@ -30,7 +30,7 @@ int ids[65536]; // [fd] -> id
 char* msgs[65536]; // [fd] -> msg
 
 char buf_read[1001];  // for recv
-char buf_write[1024]; // for send
+char buf_write[42]; // for send
 
 
 int extract_message(char **buf, char **msg)
@@ -129,8 +129,9 @@ void broadcast_msgs(int fd)
 
 	while (extract_message(&msgs[fd], &msg))
 	{
-		sprintf(buf_write, "client %d: %s", ids[fd], msg);
+		sprintf(buf_write, "client %d: ", ids[fd]);
 		notify_other(fd, buf_write);
+		notify_other(fd, msg);
 		free(msg);
 	}
 }
