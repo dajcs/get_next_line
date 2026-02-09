@@ -6,10 +6,10 @@
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/select.h>
+#include <sys/select.h>  // select, fd_set
 
 // Globals
-int max_fd = 0;		// track max_fd for select
+int max_fd = 0;		// track max_fd for select()
 int id_count = 0;	// counter for client id
 
 fd_set afds, rfds, wfds;	// active/read/write fd sets
@@ -154,10 +154,10 @@ int main(int argc, char* argv[]) {
 		exit(1);
 	}
 
-	FD_ZERO(&afds);
+	FD_ZERO(&afds);  // 1st step: clear all fd-s from the active set
 	int sockfd = create_socket();
 
-	// socket create and verification (man 7 ip)
+	// create server socket (man 7 ip)
 	struct sockaddr_in servaddr;
 	socklen_t addrlen = sizeof(servaddr);	// 16
 
@@ -169,11 +169,11 @@ int main(int argc, char* argv[]) {
 	servaddr.sin_addr.s_addr = htonl(2130706433); // 127.0.0.1 -> 127*256^3 + 1
 	servaddr.sin_port = htons(atoi(argv[1]));
 
-	// Binding newly created socket to given IP and verification
+	// Bind server socket to given IP
 	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
 		fatal_error();
 	// Listen: Mark socket as passive (accepting connections)
-	if (listen(sockfd, SOMAXCONN))   // the main uses 10, SOMAXCONN: 128..4096
+	if (listen(sockfd, SOMAXCONN))   // the given main uses 10, we use SOMAXCONN: 128..4096
 		fatal_error();
 
 	// Main event loop - runs forever, processing client events
@@ -230,3 +230,16 @@ int main(int argc, char* argv[]) {
 	}
 
 }
+
+/*
+	Test:
+		- start server:
+			./mini_serv 8080
+		- connect clients from other terminals:
+			nc 127.0.0.1 8080
+		- enter message in client terminals
+		- Ctrl-C on client terminals and server terminal
+	Note:
+		- after Ctrl-C sockets might remain in a hanging state,
+			close all terminals in order to execute a new experiment
+*/
